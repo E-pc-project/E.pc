@@ -1,0 +1,94 @@
+import { insertCenter, listCenters } from '@/lib/db'
+import { sendCenterNotification } from '@/lib/mailer'
+
+// Alternating neon accent for community-submitted centers.
+const ACCENTS = ['#00e0ff', '#ff45c8']
+
+export async function GET() {
+  try {
+    const rows = listCenters()
+    const centers = rows.map((c, i) => ({
+      id: `db-${c.id}`,
+      name: c.name,
+      district: c.district,
+      location: c.location,
+      phone: c.phone,
+      pcCount: c.pc_count,
+      pricePerHour: c.price_per_hour,
+      specs: c.specs,
+      ownerName: c.owner_name,
+      createdAt: c.created_at,
+      color: ACCENTS[i % ACCENTS.length],
+    }))
+    return Response.json({ centers })
+  } catch (err) {
+    console.error('[centers GET]', err)
+    return Response.json({ centers: [] }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json()
+    const {
+      ownerName,
+      ownerEmail,
+      name,
+      phone,
+      pcCount,
+      specs,
+      location,
+      district,
+      pricePerHour,
+      notes,
+    } = body
+
+    // Required fields per the request: phone, PC count, specs, location (+ name & owner)
+    if (!ownerEmail) {
+      return Response.json({ error: 'Эхлээд нэвтэрнэ үү.' }, { status: 401 })
+    }
+    if (!name || !phone || !location || !pcCount) {
+      return Response.json(
+        { error: 'Төвийн нэр, утас, байршил, PC тоо заавал шаардлагатай.' },
+        { status: 400 },
+      )
+    }
+
+    const center = insertCenter({
+      ownerEmail,
+      ownerName: ownerName || ownerEmail,
+      name,
+      phone,
+      pcCount: Number(pcCount) || 0,
+      specs: specs || '',
+      location,
+      district: district || '',
+      pricePerHour: Number(pricePerHour) || 0,
+      notes: notes || '',
+    })
+
+    // Forward to the project inbox. Never fail the request if email is down.
+    let emailed = false
+    try {
+      emailed = await sendCenterNotification({
+        ownerName: center.owner_name,
+        ownerEmail: center.owner_email,
+        name: center.name,
+        phone: center.phone,
+        pcCount: center.pc_count,
+        specs: center.specs,
+        location: center.location,
+        district: center.district,
+        pricePerHour: center.price_per_hour,
+        notes: center.notes,
+      })
+    } catch (mailErr) {
+      console.error('[centers POST] имэйл илгээхэд алдаа:', mailErr)
+    }
+
+    return Response.json({ id: center.id, emailed }, { status: 201 })
+  } catch (err) {
+    console.error('[centers POST]', err)
+    return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
+  }
+}
