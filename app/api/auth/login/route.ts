@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const user = getUserByEmail(email)
+    const user = await getUserByEmail(email)
     if (!user || !bcrypt.compareSync(String(password), user.password_hash)) {
       return Response.json(
         { error: 'И-мэйл эсвэл нууц үг буруу байна.' },

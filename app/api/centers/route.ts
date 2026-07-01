@@ -1,12 +1,15 @@
 import { insertCenter, listCenters } from '@/lib/db'
 import { sendCenterNotification } from '@/lib/mailer'
 
+// Always run fresh on the server (no static caching of the centers list).
+export const dynamic = 'force-dynamic'
+
 // Alternating neon accent for community-submitted centers.
 const ACCENTS = ['#00e0ff', '#ff45c8']
 
 export async function GET() {
   try {
-    const rows = listCenters()
+    const rows = await listCenters()
     const centers = rows.map((c, i) => ({
       id: `db-${c.id}`,
       name: c.name,
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const center = insertCenter({
+    const center = await insertCenter({
       ownerEmail,
       ownerName: ownerName || ownerEmail,
       name,

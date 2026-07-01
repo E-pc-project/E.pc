@@ -40,15 +40,34 @@ SMTP_USER=e.pc.project001@gmail.com
 SMTP_PASS=your-16-char-app-password
 ```
 
-## Database
+## Database (libSQL / Turso)
 
-SQLite файл нь `node_modules/.epc-data/epc.db` дотор хадгалагдана (Next.js dev watcher-аас гадуур
-байрлуулсан тул бичих болгонд хуудас reload хийгдэхгүй). Өөр байршил зааж өгөх бол `EPC_DATA_DIR`
-орчны хувьсагчийг ашигла.
+Апп `@libsql/client` ашиглана:
+- **Локал:** `TURSO_*` env хоосон бол `node_modules/.epc-data/epc.db` SQLite файлыг ашиглана (юу ч тохируулах шаардлагагүй).
+- **Vercel:** `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` тохируулбал Turso (serverless-safe) руу холбогдоно.
 
-Хүснэгтүүд:
+Хүснэгтүүд эхний хүсэлт дээр автоматаар үүснэ (`CREATE TABLE IF NOT EXISTS`):
 - `users` — id, name, email (unique), password_hash, created_at
 - `centers` — id, owner_email, owner_name, name, phone, pc_count, specs, location, district, price_per_hour, notes, status, created_at
+
+## Vercel дээр deploy хийх
+
+1. **Turso database үүсгэх** — https://turso.tech дээр бүртгүүлж DB үүсгэ, `TURSO_DATABASE_URL` ба `TURSO_AUTH_TOKEN`-оо ав.
+2. **GitHub** — энэ төслийг GitHub repo болгож push хий.
+3. **Vercel** — https://vercel.com → *Add New → Project* → GitHub repo-гоо сонго.
+4. **Environment Variables** (Vercel → Settings) дотор оруул:
+   - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` (заавал)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_TO` (имэйл идэвхжүүлэх бол)
+5. **Deploy** дар. Хүснэгтүүд анхны хүсэлт дээр Turso дээр автоматаар үүснэ.
+
+## API
+
+| Method | Зам | Үүрэг |
+|--------|-----|-------|
+| POST | `/api/auth/register` | Бүртгүүлэх |
+| POST | `/api/auth/login` | Нэвтрэх |
+| POST | `/api/centers` | Шинэ төв нэмэх (+ имэйл илгээх) |
+| GET  | `/api/centers` | Бүртгүүлсэн төвүүдийн жагсаалт |
 
 ## API
 

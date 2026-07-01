@@ -7,7 +7,7 @@ const nextConfig = {
     unoptimized: true,
   },
   // Keep native / node-only packages out of the client + server bundle
-  serverExternalPackages: ['better-sqlite3', 'nodemailer', 'bcryptjs'],
+  serverExternalPackages: ['@libsql/client', 'libsql', 'nodemailer', 'bcryptjs'],
 }
 
 export default nextConfig

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       )
     }
 
-    if (getUserByEmail(email)) {
+    if (await getUserByEmail(email)) {
       return Response.json(
         { error: 'Энэ и-мэйл хаяг бүртгэлтэй байна.' },
         { status: 409 },
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = bcrypt.hashSync(String(password), 10)
-    const user = createUser({ name, email, passwordHash })
+    const user = await createUser({ name, email, passwordHash })
 
     return Response.json(
       { user: { name: user.name, email: user.email } },
