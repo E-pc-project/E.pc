@@ -244,8 +244,31 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
     setStep('confirm')
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setStep('success')
+    // Persist the booking so it shows up in the user's profile.
+    try {
+      await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: user?.email,
+          centerId: center.id,
+          centerName: center.name,
+          date,
+          time,
+          duration,
+          seats: Array.from(selectedSeats)
+            .sort((a, b) => a - b)
+            .map((i) => i + 1),
+          game: game.name,
+          totalPrice,
+        }),
+      })
+      window.dispatchEvent(new Event('epc:bookings-updated'))
+    } catch {
+      /* booking still succeeds visually; ignore network error */
+    }
   }
 
   function handleSubmitReview() {

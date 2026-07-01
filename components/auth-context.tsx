@@ -5,6 +5,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 interface User {
   name: string
   email: string
+  isAdmin: boolean
+  isDev: boolean
 }
 
 interface AuthResult {
@@ -15,7 +17,13 @@ interface AuthResult {
 interface AuthContextValue {
   user: User | null
   login: (email: string, password: string) => Promise<AuthResult>
-  register: (name: string, email: string, password: string) => Promise<AuthResult>
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    adminCode?: string,
+  ) => Promise<AuthResult>
+  deleteAccount: (password: string) => Promise<AuthResult>
   logout: () => void
   isLoading: boolean
 }
@@ -64,16 +72,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: string,
     email: string,
     password: string,
+    adminCode?: string,
   ): Promise<AuthResult> {
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, adminCode }),
       })
       const data = await res.json()
       if (!res.ok) return { ok: false, error: data.error || 'Бүртгэлд алдаа гарлаа.' }
       persist(data.user)
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'Сервертэй холбогдож чадсангүй.' }
+    }
+  }
+
+  async function deleteAccount(password: string): Promise<AuthResult> {
+    if (!user?.email) return { ok: false, error: 'Нэвтрээгүй байна.' }
+    try {
+      const res = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) return { ok: false, error: data.error || 'Устгахад алдаа гарлаа.' }
+      logout()
       return { ok: true }
     } catch {
       return { ok: false, error: 'Сервертэй холбогдож чадсангүй.' }
@@ -88,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, register, deleteAccount, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

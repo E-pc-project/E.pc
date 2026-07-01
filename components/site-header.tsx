@@ -12,9 +12,11 @@ const NAV_LINKS = [
 
 interface SiteHeaderProps {
   onRegisterPC: () => void
+  onProfile: () => void
+  onDevPanel: () => void
 }
 
-export function SiteHeader({ onRegisterPC }: SiteHeaderProps) {
+export function SiteHeader({ onRegisterPC, onProfile, onDevPanel }: SiteHeaderProps) {
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -59,28 +61,60 @@ export function SiteHeader({ onRegisterPC }: SiteHeaderProps) {
 
         {/* Right side */}
         <div className="flex items-center gap-3">
-          {/* PC Бүртгүүлэх — always visible */}
-          <button
-            onClick={onRegisterPC}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all duration-200 hover:bg-muted"
-            style={{
-              borderColor: 'rgba(0,224,255,0.35)',
-              color: '#00e0ff',
-              fontFamily: 'var(--font-heading)',
-              letterSpacing: '0.05em',
-            }}
-          >
-            <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9v1h2v1H5v-1h2v-1H2a1 1 0 0 1-1-1V3zm1 0v7h12V3H2z"/>
-            </svg>
-            ТӨВ НЭМЭХ
-          </button>
+          {/* Developer panel — devs only */}
+          {user?.isDev && (
+            <button
+              onClick={onDevPanel}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all duration-200 hover:bg-muted"
+              style={{
+                borderColor: 'rgba(255,69,200,0.4)',
+                color: '#ff45c8',
+                fontFamily: 'var(--font-heading)',
+                letterSpacing: '0.05em',
+              }}
+            >
+              <span className="text-[9px] px-1 py-0.5 rounded border" style={{ borderColor: '#ff45c8' }}>DEV</span>
+              БҮХ ТӨВ
+            </button>
+          )}
+
+          {/* Add center — admins only */}
+          {user?.isAdmin && (
+            <button
+              onClick={onRegisterPC}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all duration-200 hover:bg-muted"
+              style={{
+                borderColor: 'rgba(0,224,255,0.35)',
+                color: '#00e0ff',
+                fontFamily: 'var(--font-heading)',
+                letterSpacing: '0.05em',
+              }}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9v1h2v1H5v-1h2v-1H2a1 1 0 0 1-1-1V3zm1 0v7h12V3H2z"/>
+              </svg>
+              ТӨВ НЭМЭХ
+            </button>
+          )}
 
           {user ? (
             <div className="flex items-center gap-3">
-              <span className="hidden sm:block text-sm text-muted-foreground">
-                <span className="text-neon-cyan font-semibold">{user.name}</span>
-              </span>
+              <button
+                onClick={onProfile}
+                className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border transition-colors hover:border-neon-cyan group"
+                style={{ borderColor: 'rgba(0,224,255,0.25)' }}
+                title="Миний хэсэг"
+              >
+                <span
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-black text-background shrink-0"
+                  style={{ background: '#00e0ff', fontFamily: 'var(--font-heading)' }}
+                >
+                  {user.name.charAt(0).toUpperCase()}
+                </span>
+                <span className="hidden sm:block text-sm text-neon-cyan font-semibold max-w-[120px] truncate">
+                  {user.name}
+                </span>
+              </button>
               <button
                 onClick={logout}
                 className="px-3 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:text-neon-magenta hover:border-neon-magenta transition-colors duration-200"

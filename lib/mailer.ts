@@ -103,3 +103,39 @@ export async function sendCenterNotification(d: CenterEmailData): Promise<boolea
   })
   return true
 }
+
+/**
+ * Emails a 6-digit password-reset code to the given user.
+ * Returns true if actually sent, false if SMTP isn't configured.
+ */
+export async function sendResetCode(toEmail: string, code: string): Promise<boolean> {
+  const transport = getTransport()
+  if (!transport) {
+    console.warn(
+      `[mailer] SMTP тохируулаагүй. ${toEmail}-ийн нууц үг сэргээх код: ${code} (dev-д зориулж console-д хэвлэв).`,
+    )
+    return false
+  }
+
+  const html = `
+  <div style="background:#0b0b0f;padding:24px;font-family:system-ui">
+    <div style="max-width:440px;margin:auto;background:#16161c;border:1px solid #2a2a32;border-radius:14px;overflow:hidden">
+      <div style="height:3px;background:linear-gradient(90deg,#00e0ff,#ff45c8)"></div>
+      <div style="padding:24px 22px;text-align:center">
+        <h2 style="margin:0 0 6px;color:#00e0ff;font:800 18px system-ui;letter-spacing:2px">E.PC — НУУЦ ҮГ СЭРГЭЭХ</h2>
+        <p style="margin:0 0 18px;color:#888;font:13px system-ui">Доорх 6 оронтой кодыг оруулж шинэ нууц үгээ тавина уу.</p>
+        <div style="font:900 34px/1 system-ui;letter-spacing:10px;color:#fff;background:#0e0e13;border:1px solid #2a2a32;border-radius:10px;padding:16px">${code}</div>
+        <p style="margin:16px 0 0;color:#666;font:12px system-ui">Код 15 минутын дараа хүчингүй болно. Хэрэв та хүсээгүй бол энэ имэйлийг үл тоомсорлоно уу.</p>
+      </div>
+    </div>
+  </div>`
+
+  await transport.sendMail({
+    from: process.env.MAIL_FROM || `E.PC Platform <${process.env.SMTP_USER}>`,
+    to: toEmail,
+    subject: `E.PC нууц үг сэргээх код: ${code}`,
+    text: `E.PC нууц үг сэргээх код: ${code}\nКод 15 минутын дараа хүчингүй болно.`,
+    html,
+  })
+  return true
+}

@@ -8,7 +8,9 @@ import { HeroSection } from "@/components/hero-section";
 import { GamesSection } from "@/components/games-section";
 import { CommunityCenters } from "@/components/community-centers";
 import { BookingModal } from "@/components/booking-modal";
-import { AddCenterModal } from "@/components/add-center-modal";
+import { AddCenterModal, type EditCenterInput } from "@/components/add-center-modal";
+import { ProfileModal } from "@/components/profile-modal";
+import { DevDashboardModal } from "@/components/dev-dashboard-modal";
 import { type EsportsCenter } from "@/lib/data";
 
 function AppInner() {
@@ -17,6 +19,9 @@ function AppInner() {
     null,
   );
   const [addCenterOpen, setAddCenterOpen] = useState(false);
+  const [editCenter, setEditCenter] = useState<EditCenterInput | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   function showToast(msg: string) {
@@ -58,7 +63,11 @@ function AppInner() {
 
   return (
     <>
-      <SiteHeader onRegisterPC={() => setAddCenterOpen(true)} />
+      <SiteHeader
+        onRegisterPC={() => setAddCenterOpen(true)}
+        onProfile={() => setProfileOpen(true)}
+        onDevPanel={() => setDevPanelOpen(true)}
+      />
 
       <main>
         <HeroSection onBook={setBookingCenter} />
@@ -100,13 +109,52 @@ function AppInner() {
         </footer>
       </main>
 
-      {/* Add gaming center modal */}
-      {addCenterOpen && (
+      {/* Add / edit gaming center modal */}
+      {(addCenterOpen || editCenter) && (
         <AddCenterModal
-          onClose={() => setAddCenterOpen(false)}
+          editCenter={editCenter ?? undefined}
+          onClose={() => {
+            setAddCenterOpen(false);
+            setEditCenter(null);
+          }}
           onCreated={() =>
             window.dispatchEvent(new Event("epc:centers-updated"))
           }
+        />
+      )}
+
+      {/* Profile modal */}
+      {profileOpen && (
+        <ProfileModal
+          onClose={() => setProfileOpen(false)}
+          onAddCenter={() => {
+            setProfileOpen(false);
+            setAddCenterOpen(true);
+          }}
+          onEditCenter={(c) => {
+            setProfileOpen(false);
+            setEditCenter({
+              id: c.id,
+              name: c.name,
+              location: c.location,
+              district: c.district,
+              phone: c.phone,
+              pcCount: c.pcCount,
+              pricePerHour: c.pricePerHour,
+              specs: c.specs,
+            });
+          }}
+        />
+      )}
+
+      {/* Developer dashboard — manage ALL centers */}
+      {devPanelOpen && (
+        <DevDashboardModal
+          onClose={() => setDevPanelOpen(false)}
+          onEditCenter={(c) => {
+            setDevPanelOpen(false);
+            setEditCenter(c);
+          }}
         />
       )}
 

@@ -3,6 +3,7 @@
 import { type EsportsCenter } from '@/lib/data'
 import { useCenters } from '@/lib/use-centers'
 import { CentersMapView } from './centers-map-view'
+import { useAuth } from './auth-context'
 
 interface CommunityCentersProps {
   onBook: (center: EsportsCenter) => void
@@ -10,6 +11,8 @@ interface CommunityCentersProps {
 }
 
 export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps) {
+  const { user } = useAuth()
+  const isAdmin = Boolean(user?.isAdmin)
   const { centers, raw, loading } = useCenters()
   const byId: Record<string, EsportsCenter> = Object.fromEntries(
     centers.map((c) => [c.id, c]),
@@ -29,22 +32,24 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
             Хэрэглэгчдийн өөрсдөө бүртгүүлсэн PC gaming төвүүдийг газрын зураг дээр харж захиалаарай.
           </p>
         </div>
-        <button
-          onClick={onAddCenter}
-          className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-200"
-          style={{
-            background: '#00e0ff',
-            color: '#0b0b0f',
-            fontFamily: 'var(--font-heading)',
-            letterSpacing: '0.05em',
-            boxShadow: '0 0 20px rgba(0,224,255,0.4)',
-          }}
-        >
-          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 1v14M1 8h14" stroke="currentColor" strokeWidth="2" />
-          </svg>
-          ТӨВ НЭМЭХ
-        </button>
+        {isAdmin && (
+          <button
+            onClick={onAddCenter}
+            className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-200"
+            style={{
+              background: '#00e0ff',
+              color: '#0b0b0f',
+              fontFamily: 'var(--font-heading)',
+              letterSpacing: '0.05em',
+              boxShadow: '0 0 20px rgba(0,224,255,0.4)',
+            }}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1v14M1 8h14" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            ТӨВ НЭМЭХ
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -64,15 +69,19 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
           </div>
           <div>
             <p className="text-foreground font-semibold mb-1">Одоогоор бүртгэгдсэн төв алга</p>
-            <p className="text-sm text-muted-foreground">Анхны төвийг нэмж E.PC-д нэгдээрэй.</p>
+            <p className="text-sm text-muted-foreground">
+              {isAdmin ? 'Анхны төвийг нэмж E.PC-д нэгдээрэй.' : 'Админ эрхтэй хэрэглэгч төв нэмэх боломжтой.'}
+            </p>
           </div>
-          <button
-            onClick={onAddCenter}
-            className="px-5 py-2.5 rounded-xl font-bold text-sm text-background"
-            style={{ background: '#00e0ff', fontFamily: 'var(--font-heading)' }}
-          >
-            ТӨВ НЭМЭХ
-          </button>
+          {isAdmin && (
+            <button
+              onClick={onAddCenter}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm text-background"
+              style={{ background: '#00e0ff', fontFamily: 'var(--font-heading)' }}
+            >
+              ТӨВ НЭМЭХ
+            </button>
+          )}
         </div>
       ) : (
         <>

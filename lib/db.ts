@@ -11,6 +11,10 @@ export interface UserRow {
   name: string
   email: string
   password_hash: string
+  is_admin: number
+  is_dev: number
+  reset_code: string | null
+  reset_expires: string | null
   created_at: string
 }
 
@@ -27,6 +31,20 @@ export interface CenterRow {
   price_per_hour: number
   notes: string
   status: string
+  created_at: string
+}
+
+export interface BookingRow {
+  id: number
+  user_email: string
+  center_id: string
+  center_name: string
+  date: string
+  time: string
+  duration: number
+  seats: string
+  game: string
+  total_price: number
   created_at: string
 }
 
@@ -69,8 +87,25 @@ async function db(): Promise<Client> {
           name          TEXT NOT NULL,
           email         TEXT NOT NULL UNIQUE,
           password_hash TEXT NOT NULL,
+          is_admin      INTEGER NOT NULL DEFAULT 0,
+          is_dev        INTEGER NOT NULL DEFAULT 0,
+          reset_code    TEXT,
+          reset_expires TEXT,
           created_at    TEXT NOT NULL
         )`)
+      // Migrations for pre-existing databases missing these columns.
+      for (const sql of [
+        'ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN is_dev INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN reset_code TEXT',
+        'ALTER TABLE users ADD COLUMN reset_expires TEXT',
+      ]) {
+        try {
+          await client.execute(sql)
+        } catch {
+          /* column already exists */
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS centers (
           id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +121,20 @@ async function db(): Promise<Client> {
           notes          TEXT NOT NULL DEFAULT '',
           status         TEXT NOT NULL DEFAULT 'pending',
           created_at     TEXT NOT NULL
+        )`)
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS bookings (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_email  TEXT NOT NULL,
+          center_id   TEXT NOT NULL,
+          center_name TEXT NOT NULL,
+          date        TEXT NOT NULL DEFAULT '',
+          time        TEXT NOT NULL DEFAULT '',
+          duration    INTEGER NOT NULL DEFAULT 1,
+          seats       TEXT NOT NULL DEFAULT '',
+          game        TEXT NOT NULL DEFAULT '',
+          total_price INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT NOT NULL
         )`)
     })()
   }
@@ -108,14 +157,56 @@ export async function createUser(input: {
   name: string
   email: string
   passwordHash: string
+  isAdmin?: boolean
+  isDev?: boolean
 }): Promise<UserRow> {
   const client = await db()
   const rs = await client.execute({
-    sql: `INSERT INTO users (name, email, password_hash, created_at)
-          VALUES (?, ?, ?, ?) RETURNING *`,
-    args: [input.name, input.email.toLowerCase(), input.passwordHash, new Date().toISOString()],
+    sql: `INSERT INTO users (name, email, password_hash, is_admin, is_dev, created_at)
+          VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.name,
+      input.email.toLowerCase(),
+      input.passwordHash,
+      input.isAdmin ? 1 : 0,
+      input.isDev ? 1 : 0,
+      new Date().toISOString(),
+    ],
   })
   return rs.rows[0] as unknown as UserRow
+}
+
+// Store a password-reset code + expiry on the user.
+export async function setResetCode(
+  email: string,
+  code: string,
+  expiresISO: string,
+): Promise<void> {
+  const client = await db()
+  await client.execute({
+    sql: 'UPDATE users SET reset_code = ?, reset_expires = ? WHERE email = ?',
+    args: [code, expiresISO, email.toLowerCase()],
+  })
+}
+
+// Update the password hash and clear any reset code.
+export async function updatePassword(email: string, passwordHash: string): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'UPDATE users SET password_hash = ?, reset_code = NULL, reset_expires = NULL WHERE email = ?',
+    args: [passwordHash, email.toLowerCase()],
+  })
+  return rs.rowsAffected > 0
+}
+
+// Permanently delete a user and everything they own.
+export async function deleteUserAccount(email: string): Promise<boolean> {
+  const client = await db()
+  const e = email.toLowerCase()
+  await client.execute({ sql: 'DELETE FROM centers WHERE owner_email = ?', args: [e] })
+  await client.execute({ sql: 'DELETE FROM bookings WHERE user_email = ?', args: [e] })
+  const rs = await client.execute({ sql: 'DELETE FROM users WHERE email = ?', args: [e] })
+  return rs.rowsAffected > 0
 }
 
 /* ---------------------------- Centers ---------------------------- */
@@ -158,4 +249,140 @@ export async function listCenters(): Promise<CenterRow[]> {
   const client = await db()
   const rs = await client.execute('SELECT * FROM centers ORDER BY created_at DESC')
   return rs.rows as unknown as CenterRow[]
+}
+
+export async function listCentersByOwner(email: string): Promise<CenterRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM centers WHERE owner_email = ? ORDER BY created_at DESC',
+    args: [email.toLowerCase()],
+  })
+  return rs.rows as unknown as CenterRow[]
+}
+
+export async function deleteCenter(id: number, ownerEmail: string): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'DELETE FROM centers WHERE id = ? AND owner_email = ?',
+    args: [id, ownerEmail.toLowerCase()],
+  })
+  return rs.rowsAffected > 0
+}
+
+// Developer / super-admin: delete any center regardless of owner.
+export async function deleteCenterById(id: number): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'DELETE FROM centers WHERE id = ?',
+    args: [id],
+  })
+  return rs.rowsAffected > 0
+}
+
+export async function updateCenter(
+  id: number,
+  ownerEmail: string,
+  fields: {
+    name: string
+    phone: string
+    pcCount: number
+    specs: string
+    location: string
+    district: string
+    pricePerHour: number
+  },
+): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `UPDATE centers
+             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?
+           WHERE id = ? AND owner_email = ?`,
+    args: [
+      fields.name,
+      fields.phone,
+      fields.pcCount,
+      fields.specs,
+      fields.location,
+      fields.district,
+      fields.pricePerHour,
+      id,
+      ownerEmail.toLowerCase(),
+    ],
+  })
+  return rs.rowsAffected > 0
+}
+
+// Developer / super-admin: update any center regardless of owner.
+export async function updateCenterById(
+  id: number,
+  fields: {
+    name: string
+    phone: string
+    pcCount: number
+    specs: string
+    location: string
+    district: string
+    pricePerHour: number
+  },
+): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `UPDATE centers
+             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?
+           WHERE id = ?`,
+    args: [
+      fields.name,
+      fields.phone,
+      fields.pcCount,
+      fields.specs,
+      fields.location,
+      fields.district,
+      fields.pricePerHour,
+      id,
+    ],
+  })
+  return rs.rowsAffected > 0
+}
+
+/* ---------------------------- Bookings --------------------------- */
+
+export async function insertBooking(input: {
+  userEmail: string
+  centerId: string
+  centerName: string
+  date: string
+  time: string
+  duration: number
+  seats: string
+  game: string
+  totalPrice: number
+}): Promise<BookingRow> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `INSERT INTO bookings
+            (user_email, center_id, center_name, date, time, duration, seats, game, total_price, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.userEmail.toLowerCase(),
+      input.centerId,
+      input.centerName,
+      input.date,
+      input.time,
+      input.duration,
+      input.seats,
+      input.game,
+      input.totalPrice,
+      new Date().toISOString(),
+    ],
+  })
+  return rs.rows[0] as unknown as BookingRow
+}
+
+export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM bookings WHERE user_email = ? ORDER BY created_at DESC',
+    args: [email.toLowerCase()],
+  })
+  return rs.rows as unknown as BookingRow[]
 }

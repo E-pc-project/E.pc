@@ -116,6 +116,18 @@
   }
 }
 
+/* Native <select> dropdown options — dark bg + light text so options stay visible */
+select option,
+select optgroup {
+  background-color: #16161c;
+  color: #f0f2f5;
+}
+select option:checked,
+select option:hover {
+  background-color: #1f1f27;
+  color: #00e0ff;
+}
+
 /* Cyberpunk scan-line overlay */
 body::before {
   content: '';

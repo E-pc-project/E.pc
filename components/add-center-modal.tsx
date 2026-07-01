@@ -3,9 +3,21 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 
+export interface EditCenterInput {
+  id: number
+  name: string
+  location: string
+  district: string
+  phone: string
+  pcCount: number
+  pricePerHour: number
+  specs: string
+}
+
 interface AddCenterModalProps {
   onClose: () => void
   onCreated?: () => void
+  editCenter?: EditCenterInput
 }
 
 const DISTRICTS = [
@@ -29,26 +41,33 @@ const MONITOR_OPTIONS = [
 
 const ACCENT = '#00e0ff'
 
-export function AddCenterModal({ onClose, onCreated }: AddCenterModalProps) {
+export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModalProps) {
   const { user } = useAuth()
+  const isEdit = Boolean(editCenter)
+  // Split an existing specs string back into the four dropdown values.
+  const specParts = (editCenter?.specs || '').split(' · ')
+  const pick = (opts: string[]) => specParts.find((p) => opts.includes(p)) || ''
+
   const [step, setStep] = useState<'form' | 'success'>('form')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailed, setEmailed] = useState(false)
 
   // Center info
-  const [name, setName] = useState('')
-  const [location, setLocation] = useState('')
-  const [district, setDistrict] = useState('')
-  const [phone, setPhone] = useState('')
-  const [pcCount, setPcCount] = useState('')
-  const [pricePerHour, setPricePerHour] = useState('')
+  const [name, setName] = useState(editCenter?.name || '')
+  const [location, setLocation] = useState(editCenter?.location || '')
+  const [district, setDistrict] = useState(editCenter?.district || '')
+  const [phone, setPhone] = useState(editCenter?.phone || '')
+  const [pcCount, setPcCount] = useState(editCenter ? String(editCenter.pcCount) : '')
+  const [pricePerHour, setPricePerHour] = useState(
+    editCenter?.pricePerHour ? String(editCenter.pricePerHour) : '',
+  )
 
   // Specs (үзүүлэлт)
-  const [gpu, setGpu] = useState('')
-  const [cpu, setCpu] = useState('')
-  const [ram, setRam] = useState('')
-  const [monitor, setMonitor] = useState('')
+  const [gpu, setGpu] = useState(pick(GPU_OPTIONS))
+  const [cpu, setCpu] = useState(pick(CPU_OPTIONS))
+  const [ram, setRam] = useState(pick(RAM_OPTIONS))
+  const [monitor, setMonitor] = useState(pick(MONITOR_OPTIONS))
   const [notes, setNotes] = useState('')
 
   const canSubmit = name && location && phone && pcCount && !loading
@@ -63,9 +82,10 @@ export function AddCenterModal({ onClose, onCreated }: AddCenterModalProps) {
     setError('')
     try {
       const res = await fetch('/api/centers', {
-        method: 'POST',
+        method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: editCenter?.id,
           ownerName: user?.name,
           ownerEmail: user?.email,
           name,
@@ -113,10 +133,12 @@ export function AddCenterModal({ onClose, onCreated }: AddCenterModalProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: `${ACCENT}20` }}>
           <div>
             <h2 className="font-black text-lg" style={{ fontFamily: 'var(--font-heading)', color: ACCENT }}>
-              GAMING ТӨВ НЭМЭХ
+              {isEdit ? 'ТӨВ ЗАСАХ' : 'GAMING ТӨВ НЭМЭХ'}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Өөрийн PC gaming төвөө бүртгүүлж E.PC дээр харагдуул
+              {isEdit
+                ? 'Өөрийн төвийн мэдээллийг шинэчил'
+                : 'Өөрийн PC gaming төвөө бүртгүүлж E.PC дээр харагдуул'}
             </p>
           </div>
           <button
@@ -140,17 +162,19 @@ export function AddCenterModal({ onClose, onCreated }: AddCenterModalProps) {
             </div>
             <div>
               <h3 className="text-xl font-black mb-2" style={{ color: ACCENT, fontFamily: 'var(--font-heading)' }}>
-                АМЖИЛТТАЙ БҮРТГЭГДЛЭЭ!
+                {isEdit ? 'АМЖИЛТТАЙ ЗАСАГДЛАА!' : 'АМЖИЛТТАЙ БҮРТГЭГДЛЭЭ!'}
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                <span className="text-foreground font-semibold">{name}</span> төв амжилттай бүртгэгдэж,
-                мэдээлэл хадгалагдлаа.
+                <span className="text-foreground font-semibold">{name}</span>{' '}
+                {isEdit ? 'төвийн мэдээлэл шинэчлэгдлээ.' : 'төв амжилттай бүртгэгдэж, мэдээлэл хадгалагдлаа.'}
               </p>
-              <p className="text-xs mt-3" style={{ color: emailed ? ACCENT : '#9a9aae' }}>
-                {emailed
-                  ? '✓ Мэдээлэл e.pc.project001@gmail.com хаягруу илгээгдлээ.'
-                  : '• Мэдээлэл өгөгдлийн санд хадгалагдлаа (имэйл тохиргоо хийгдээгүй).'}
-              </p>
+              {!isEdit && (
+                <p className="text-xs mt-3" style={{ color: emailed ? ACCENT : '#9a9aae' }}>
+                  {emailed
+                    ? '✓ Мэдээлэл e.pc.project001@gmail.com хаягруу илгээгдлээ.'
+                    : '• Мэдээлэл өгөгдлийн санд хадгалагдлаа (имэйл тохиргоо хийгдээгүй).'}
+                </p>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -288,12 +312,22 @@ export function AddCenterModal({ onClose, onCreated }: AddCenterModalProps) {
                 fontFamily: 'var(--font-heading)',
               }}
             >
-              {loading ? 'ИЛГЭЭЖ БАЙНА...' : !canSubmit ? 'ШААРДЛАГАТАЙ ТАЛБАРЫГ БӨГЛӨНӨ ҮҮ' : 'БҮРТГҮҮЛЭХ'}
+              {loading
+                ? isEdit
+                  ? 'ХАДГАЛЖ БАЙНА...'
+                  : 'ИЛГЭЭЖ БАЙНА...'
+                : !canSubmit
+                  ? 'ШААРДЛАГАТАЙ ТАЛБАРЫГ БӨГЛӨНӨ ҮҮ'
+                  : isEdit
+                    ? 'ХАДГАЛАХ'
+                    : 'БҮРТГҮҮЛЭХ'}
             </button>
 
-            <p className="text-[11px] text-muted-foreground text-center pb-1">
-              Бүртгүүлснээр мэдээлэл <span style={{ color: ACCENT }}>e.pc.project001@gmail.com</span> руу илгээгдэнэ.
-            </p>
+            {!isEdit && (
+              <p className="text-[11px] text-muted-foreground text-center pb-1">
+                Бүртгүүлснээр мэдээлэл <span style={{ color: ACCENT }}>e.pc.project001@gmail.com</span> руу илгээгдэнэ.
+              </p>
+            )}
           </div>
         )}
       </div>

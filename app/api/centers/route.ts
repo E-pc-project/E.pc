@@ -1,4 +1,12 @@
-import { insertCenter, listCenters } from '@/lib/db'
+import {
+  deleteCenter,
+  deleteCenterById,
+  getUserByEmail,
+  insertCenter,
+  listCenters,
+  updateCenter,
+  updateCenterById,
+} from '@/lib/db'
 import { sendCenterNotification } from '@/lib/mailer'
 
 // Always run fresh on the server (no static caching of the centers list).
@@ -50,6 +58,14 @@ export async function POST(req: Request) {
     if (!ownerEmail) {
       return Response.json({ error: 'Эхлээд нэвтэрнэ үү.' }, { status: 401 })
     }
+    // Only admins may add centers.
+    const owner = await getUserByEmail(ownerEmail)
+    if (!owner || !owner.is_admin) {
+      return Response.json(
+        { error: 'Зөвхөн админ эрхтэй хэрэглэгч төв нэмэх боломжтой.' },
+        { status: 403 },
+      )
+    }
     if (!name || !phone || !location || !pcCount) {
       return Response.json(
         { error: 'Төвийн нэр, утас, байршил, PC тоо заавал шаардлагатай.' },
@@ -92,6 +108,72 @@ export async function POST(req: Request) {
     return Response.json({ id: center.id, emailed }, { status: 201 })
   } catch (err) {
     console.error('[centers POST]', err)
+    return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const params = new URL(req.url).searchParams
+    const rawId = params.get('id') || ''
+    const email = params.get('email') || ''
+    // Client ids look like "db-4" — strip the prefix to the numeric row id.
+    const id = Number(rawId.replace(/^db-/, ''))
+    if (!id || !email) {
+      return Response.json({ error: 'id ба email шаардлагатай.' }, { status: 400 })
+    }
+    // Developers may delete any center; admins only their own.
+    const requester = await getUserByEmail(email)
+    const ok = requester?.is_dev
+      ? await deleteCenterById(id)
+      : await deleteCenter(id, email)
+    if (!ok) {
+      return Response.json(
+        { error: 'Устгах эрхгүй эсвэл олдсонгүй.' },
+        { status: 403 },
+      )
+    }
+    return Response.json({ ok: true })
+  } catch (err) {
+    console.error('[centers DELETE]', err)
+    return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json()
+    const { id, ownerEmail, name, phone, pcCount, specs, location, district, pricePerHour } = body
+    const numId = Number(String(id ?? '').replace(/^db-/, ''))
+    if (!numId || !ownerEmail) {
+      return Response.json({ error: 'id ба ownerEmail шаардлагатай.' }, { status: 400 })
+    }
+    if (!name || !phone || !location || !pcCount) {
+      return Response.json(
+        { error: 'Төвийн нэр, утас, байршил, PC тоо заавал шаардлагатай.' },
+        { status: 400 },
+      )
+    }
+    const fields = {
+      name,
+      phone,
+      pcCount: Number(pcCount) || 0,
+      specs: specs || '',
+      location,
+      district: district || '',
+      pricePerHour: Number(pricePerHour) || 0,
+    }
+    // Developers may edit any center; admins only their own.
+    const requester = await getUserByEmail(ownerEmail)
+    const ok = requester?.is_dev
+      ? await updateCenterById(numId, fields)
+      : await updateCenter(numId, ownerEmail, fields)
+    if (!ok) {
+      return Response.json({ error: 'Засах эрхгүй эсвэл олдсонгүй.' }, { status: 403 })
+    }
+    return Response.json({ ok: true })
+  } catch (err) {
+    console.error('[centers PATCH]', err)
     return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
   }
 }

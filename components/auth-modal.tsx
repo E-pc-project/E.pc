@@ -3,54 +3,106 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 
+type Mode = 'login' | 'register' | 'forgot' | 'reset'
+
+const inputCls =
+  'bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors'
+
 export function AuthModal() {
   const { login, register } = useAuth()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [adminCode, setAdminCode] = useState('')
+  const [code, setCode] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
+
+  function switchMode(m: Mode) {
+    setMode(m)
+    setError('')
+    setInfo('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    setInfo('')
     setLoading(true)
-    const result =
-      mode === 'register'
-        ? await register(name, email, password)
-        : await login(email, password)
-    if (!result.ok) setError(result.error || 'Алдаа гарлаа.')
-    setLoading(false)
+    try {
+      if (mode === 'register') {
+        const r = await register(name, email, password, adminCode.trim() || undefined)
+        if (!r.ok) setError(r.error || 'Алдаа гарлаа.')
+      } else if (mode === 'login') {
+        const r = await login(email, password)
+        if (!r.ok) setError(r.error || 'Алдаа гарлаа.')
+      } else if (mode === 'forgot') {
+        const res = await fetch('/api/auth/forgot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        })
+        const data = await res.json()
+        if (!res.ok) setError(data.error || 'Алдаа гарлаа.')
+        else {
+          setMode('reset')
+          setInfo(
+            data.emailed
+              ? `6 оронтой код ${email} хаягруу илгээгдлээ. И-мэйлээ шалгана уу.`
+              : 'Имэйл (SMTP) тохируулаагүй тул код серверийн console-д хэвлэгдлээ.',
+          )
+        }
+      } else if (mode === 'reset') {
+        const res = await fetch('/api/auth/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code, newPassword }),
+        })
+        const data = await res.json()
+        if (!res.ok) setError(data.error || 'Алдаа гарлаа.')
+        else {
+          setPassword('')
+          setNewPassword('')
+          setCode('')
+          setMode('login')
+          setInfo('Нууц үг амжилттай солигдлоо. Одоо нэвтэрнэ үү.')
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const isAuthTabs = mode === 'login' || mode === 'register'
+
+  const submitLabel = loading
+    ? 'Уншиж байна...'
+    : mode === 'login'
+      ? 'НЭВТРЭХ'
+      : mode === 'register'
+        ? 'БҮРТГҮҮЛЭХ'
+        : mode === 'forgot'
+          ? 'КОД ИЛГЭЭХ'
+          : 'НУУЦ ҮГ СОЛИХ'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95">
-      {/* Animated grid background */}
       <div className="cyber-grid absolute inset-0 opacity-30" />
-
-      {/* Floating neon orbs */}
       <div
         className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full neon-pulse"
-        style={{
-          background: 'radial-gradient(circle, rgba(0,224,255,0.08) 0%, transparent 70%)',
-        }}
+        style={{ background: 'radial-gradient(circle, rgba(0,224,255,0.08) 0%, transparent 70%)' }}
       />
       <div
         className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full neon-pulse"
-        style={{
-          background: 'radial-gradient(circle, rgba(255,69,200,0.06) 0%, transparent 70%)',
-          animationDelay: '1.2s',
-        }}
+        style={{ background: 'radial-gradient(circle, rgba(255,69,200,0.06) 0%, transparent 70%)', animationDelay: '1.2s' }}
       />
 
       <div className="relative w-full max-w-md mx-4 float-in">
-        {/* Logo */}
         <div className="text-center mb-8">
-          <h1
-            className="text-5xl font-black tracking-widest glitch neon-text-cyan"
-            style={{ fontFamily: 'var(--font-heading)' }}
-          >
+          <h1 className="text-5xl font-black tracking-widest glitch neon-text-cyan" style={{ fontFamily: 'var(--font-heading)' }}>
             E.PC
           </h1>
           <p className="text-muted-foreground text-sm mt-2 tracking-widest uppercase">
@@ -59,72 +111,101 @@ export function AuthModal() {
         </div>
 
         <div className="glass-card rounded-xl p-8 relative cyber-corner">
-          {/* Tab switcher */}
-          <div className="flex mb-6 bg-muted rounded-lg p-1">
-            {(['login', 'register'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => { setMode(m); setError('') }}
-                className={`flex-1 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${
-                  mode === m
-                    ? 'bg-neon-cyan text-background font-bold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {m === 'login' ? 'Нэвтрэх' : 'Бүртгүүлэх'}
-              </button>
-            ))}
-          </div>
+          {isAuthTabs ? (
+            <div className="flex mb-6 bg-muted rounded-lg p-1">
+              {(['login', 'register'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => switchMode(m)}
+                  className={`flex-1 py-2 rounded-md text-sm font-semibold transition-all duration-200 ${
+                    mode === m ? 'bg-neon-cyan text-background font-bold' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {m === 'login' ? 'Нэвтрэх' : 'Бүртгүүлэх'}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mb-6">
+              <h2 className="text-lg font-black neon-text-cyan" style={{ fontFamily: 'var(--font-heading)' }}>
+                {mode === 'forgot' ? 'НУУЦ ҮГ СЭРГЭЭХ' : 'ШИНЭ НУУЦ ҮГ'}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                {mode === 'forgot'
+                  ? 'И-мэйлээ оруулбал 6 оронтой код илгээнэ.'
+                  : 'И-мэйл рүү ирсэн кодоо оруулж шинэ нууц үгээ тавь.'}
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {mode === 'register' && (
+              <Field label="Нэр">
+                <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Таны нэр" className={inputCls} />
+              </Field>
+            )}
+
+            {mode !== 'reset' ? (
+              <Field label="И-мэйл">
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@email.com" className={inputCls} />
+              </Field>
+            ) : (
+              <Field label="И-мэйл">
+                <input type="email" value={email} readOnly className={`${inputCls} opacity-70`} />
+              </Field>
+            )}
+
+            {(mode === 'login' || mode === 'register') && (
+              <Field label="Нууц үг">
+                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={inputCls} />
+              </Field>
+            )}
+
+            {mode === 'reset' && (
+              <>
+                <Field label="6 оронтой код">
+                  <input
+                    type="text"
+                    required
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className={`${inputCls} tracking-[0.5em] text-center text-lg font-bold`}
+                  />
+                </Field>
+                <Field label="Шинэ нууц үг">
+                  <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className={inputCls} />
+                </Field>
+              </>
+            )}
+
+            {mode === 'register' && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs text-muted-foreground uppercase tracking-widest">
-                  Нэр
+                  Админ / Dev код <span className="lowercase tracking-normal text-[10px]">(заавал биш)</span>
                 </label>
                 <input
                   type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Таны нэр"
-                  className="bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors"
+                  value={adminCode}
+                  onChange={(e) => setAdminCode(e.target.value)}
+                  placeholder="Админ эсвэл developer код"
+                  className={`${inputCls} focus:border-neon-magenta focus:ring-neon-magenta`}
+                  style={{ borderColor: 'rgba(255,69,200,0.25)' }}
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  <span style={{ color: '#ff45c8' }}>Админ</span> — өөрийн төв нэмж удирдана.{' '}
+                  <span style={{ color: '#ff45c8' }}>Developer</span> — бүх төвийг удирдана. Хоосон бол энгийн хэрэглэгч.
+                </p>
               </div>
             )}
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-widest">
-                И-мэйл
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="example@email.com"
-                className="bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-widest">
-                Нууц үг
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors"
-              />
-            </div>
-
             {error && (
-              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                {error}
-              </p>
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>
+            )}
+            {info && (
+              <p className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">{info}</p>
             )}
 
             <button
@@ -133,25 +214,52 @@ export function AuthModal() {
               className="mt-2 py-3 rounded-lg font-bold text-background bg-neon-cyan neon-glow-btn transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed tracking-wider"
               style={{ fontFamily: 'var(--font-heading)' }}
             >
-              {loading ? 'Уншиж байна...' : mode === 'login' ? 'НЭВТРЭХ' : 'БҮРТГҮҮЛЭХ'}
+              {submitLabel}
             </button>
           </form>
 
-          <p className="text-center text-xs text-muted-foreground mt-5">
-            {mode === 'login' ? 'Бүртгэл байхгүй юу?' : 'Бүртгэлтэй юу?'}{' '}
-            <button
-              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}
-              className="text-neon-cyan underline underline-offset-2"
-            >
-              {mode === 'login' ? 'Бүртгүүлэх' : 'Нэвтрэх'}
-            </button>
-          </p>
+          {mode === 'login' && (
+            <p className="text-center text-xs text-muted-foreground mt-4">
+              <button onClick={() => switchMode('forgot')} className="text-neon-magenta underline underline-offset-2">
+                Нууц үг мартсан уу?
+              </button>
+            </p>
+          )}
+
+          {isAuthTabs ? (
+            <p className="text-center text-xs text-muted-foreground mt-3">
+              {mode === 'login' ? 'Бүртгэл байхгүй юу?' : 'Бүртгэлтэй юу?'}{' '}
+              <button onClick={() => switchMode(mode === 'login' ? 'register' : 'login')} className="text-neon-cyan underline underline-offset-2">
+                {mode === 'login' ? 'Бүртгүүлэх' : 'Нэвтрэх'}
+              </button>
+            </p>
+          ) : (
+            <p className="text-center text-xs text-muted-foreground mt-4">
+              {mode === 'reset' && (
+                <button onClick={() => switchMode('forgot')} className="text-neon-cyan underline underline-offset-2 mr-3">
+                  Дахин код авах
+                </button>
+              )}
+              <button onClick={() => switchMode('login')} className="text-neon-cyan underline underline-offset-2">
+                ← Нэвтрэх рүү буцах
+              </button>
+            </p>
+          )}
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-4 opacity-50">
           © 2025 E.PC — All rights reserved
         </p>
       </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs text-muted-foreground uppercase tracking-widest">{label}</label>
+      {children}
     </div>
   )
 }

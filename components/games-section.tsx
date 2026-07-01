@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { GAMES, type Game } from '@/lib/data'
+import { useAuth } from './auth-context'
 
 function GameCard({ game }: { game: Game }) {
   const [expanded, setExpanded] = useState(false)
@@ -106,6 +107,7 @@ interface GamesSectionProps {
 }
 
 export function GamesSection({ onRegisterPC }: GamesSectionProps) {
+  const { user } = useAuth()
   const [filter, setFilter] = useState<string>('All')
   const genres = ['All', ...Array.from(new Set(GAMES.map((g) => g.genre)))]
 
@@ -130,22 +132,24 @@ export function GamesSection({ onRegisterPC }: GamesSectionProps) {
             Дараах тоглоомуудаас сонгоод eSports залд захиалга өгнө үү. Үнэ нь цагаар тооцогдоно.
           </p>
         </div>
-        {/* PC Бүртгүүлэх button */}
-        <button
-          onClick={onRegisterPC}
-          className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm border transition-all duration-200 hover:bg-muted"
-          style={{
-            borderColor: 'rgba(0,224,255,0.35)',
-            color: '#00e0ff',
-            fontFamily: 'var(--font-heading)',
-            letterSpacing: '0.05em',
-          }}
-        >
-          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9v1h2v1H5v-1h2v-1H2a1 1 0 0 1-1-1V3zm1 0v7h12V3H2z"/>
-          </svg>
-          ТӨВ НЭМЭХ
-        </button>
+        {/* Add center button — admins only */}
+        {user?.isAdmin && (
+          <button
+            onClick={onRegisterPC}
+            className="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm border transition-all duration-200 hover:bg-muted"
+            style={{
+              borderColor: 'rgba(0,224,255,0.35)',
+              color: '#00e0ff',
+              fontFamily: 'var(--font-heading)',
+              letterSpacing: '0.05em',
+            }}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H9v1h2v1H5v-1h2v-1H2a1 1 0 0 1-1-1V3zm1 0v7h12V3H2z"/>
+            </svg>
+            ТӨВ НЭМЭХ
+          </button>
+        )}
       </div>
 
       {/* Genre filter */}
