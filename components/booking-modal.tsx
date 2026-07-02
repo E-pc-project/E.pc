@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { GAMES, type EsportsCenter } from '@/lib/data'
 import { useAuth } from './auth-context'
+import { useWallet } from '@/lib/use-wallet'
 
 interface BookingModalProps {
   center: EsportsCenter
@@ -267,7 +268,10 @@ function SeatMap({
 
 export function BookingModal({ center, onClose, onComplete }: BookingModalProps) {
   const { user } = useAuth()
+  const { balance, reload: reloadWallet } = useWallet(user?.email)
   const [step, setStep] = useState<Step>('details')
+  const [confirming, setConfirming] = useState(false)
+  const [confirmError, setConfirmError] = useState('')
 
   const [date, setDate] = useState(getTodayStr())
   const [time, setTime] = useState('18:00')
@@ -302,10 +306,10 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   }
 
   async function handleConfirm() {
-    setStep('success')
-    // Persist the booking so it shows up in the user's profile.
+    setConfirming(true)
+    setConfirmError('')
     try {
-      await fetch('/api/bookings', {
+      const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -322,10 +326,20 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
           totalPrice,
         }),
       })
+      const data = await res.json()
+      if (!res.ok) {
+        setConfirmError(data.error || 'Захиалга амжилтгүй боллоо.')
+        setConfirming(false)
+        return
+      }
       window.dispatchEvent(new Event('epc:bookings-updated'))
+      window.dispatchEvent(new Event('epc:wallet-updated'))
+      reloadWallet()
+      setStep('success')
     } catch {
-      /* booking still succeeds visually; ignore network error */
+      setConfirmError('Сервертэй холбогдож чадсангүй.')
     }
+    setConfirming(false)
   }
 
   function handleSubmitReview() {
@@ -587,19 +601,45 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                 </div>
               ))}
             </div>
+
+            {/* Wallet balance vs required amount */}
+            <div
+              className="flex items-center justify-between rounded-lg px-4 py-2.5 text-xs"
+              style={{
+                background: balance < totalPrice ? 'rgba(255,69,200,0.06)' : 'rgba(0,224,255,0.06)',
+                border: `1px solid ${balance < totalPrice ? 'rgba(255,69,200,0.3)' : 'rgba(0,224,255,0.2)'}`,
+              }}
+            >
+              <span className="text-muted-foreground">Таны хэтэвчний үлдэгдэл</span>
+              <EcoinAmount amount={balance} color={balance < totalPrice ? '#ff45c8' : '#00e0ff'} size="sm" />
+            </div>
+            {balance < totalPrice && (
+              <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 -mt-2">
+                Ecoin үлдэгдэл хүрэлцэхгүй байна. Профайл → Хэтэвч хэсгээс цэнэглэнэ үү.
+              </p>
+            )}
+
+            {confirmError && (
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                {confirmError}
+              </p>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => setStep('details')}
-                className="flex-1 py-3 rounded-xl font-bold border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors"
+                disabled={confirming}
+                className="flex-1 py-3 rounded-xl font-bold border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors disabled:opacity-40"
               >
                 Буцах
               </button>
               <button
                 onClick={handleConfirm}
-                className="flex-1 py-3 rounded-xl font-black text-background tracking-widest transition-all duration-200"
-                style={{ background: center.color, boxShadow: `0 0 20px ${center.color}50`, fontFamily: 'var(--font-heading)' }}
+                disabled={confirming || balance < totalPrice}
+                className="flex-1 py-3 rounded-xl font-black text-background tracking-widest transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: center.color, boxShadow: confirming || balance < totalPrice ? 'none' : `0 0 20px ${center.color}50`, fontFamily: 'var(--font-heading)' }}
               >
-                БАТАЛГААЖУУЛАХ
+                {confirming ? 'БОЛОВСРУУЛЖ БАЙНА...' : balance < totalPrice ? 'ҮЛДЭГДЭЛ ДУТУУ' : 'БАТАЛГААЖУУЛАХ'}
               </button>
             </div>
           </div>

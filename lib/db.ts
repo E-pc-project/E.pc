@@ -411,3 +411,14 @@ export async function addUserBalance(email: string, amount: number): Promise<num
   })
   return getUserBalance(email)
 }
+
+// Atomically deducts `amount` only if the user currently has enough balance.
+// Returns false (no-op) if the balance is insufficient — safe under concurrent requests.
+export async function deductUserBalance(email: string, amount: number): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'UPDATE users SET balance = balance - ? WHERE email = ? AND balance >= ?',
+    args: [amount, email.toLowerCase(), amount],
+  })
+  return rs.rowsAffected > 0
+}
