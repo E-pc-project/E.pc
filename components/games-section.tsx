@@ -65,16 +65,7 @@ function GameCard({ game }: { game: Game }) {
           </h3>
           <p className="text-xs text-muted-foreground mb-3">{game.genre}</p>
 
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{game.players}</span>
-            <span
-              className="text-sm font-bold"
-              style={{ color: game.color, fontFamily: 'var(--font-heading)' }}
-            >
-              ₮{game.price.toLocaleString()}
-              <span className="text-xs font-normal text-muted-foreground">/цаг</span>
-            </span>
-          </div>
+          <span className="text-xs text-muted-foreground">{game.players}</span>
         </div>
 
         {/* Expanded description */}
