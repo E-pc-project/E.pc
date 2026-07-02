@@ -33,6 +33,63 @@ function getTodayStr() {
   return new Date().toISOString().split('T')[0]
 }
 
+// --- Ecoin currency badge (1 ecoin = 1 ₮) ---
+function EcoinAmount({
+  amount,
+  color,
+  size = 'lg',
+}: {
+  amount: number
+  color: string
+  size?: 'sm' | 'lg'
+}) {
+  const big = size === 'lg'
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 font-black align-middle"
+      style={{
+        color,
+        fontFamily: 'var(--font-heading)',
+        fontSize: big ? '1.5rem' : '0.8em',
+        textShadow: big ? `0 0 10px ${color}90, 0 0 26px ${color}45` : 'none',
+      }}
+    >
+      <svg
+        width={big ? 20 : 13}
+        height={big ? 20 : 13}
+        viewBox="0 0 20 20"
+        fill="none"
+        style={{ filter: big ? `drop-shadow(0 0 4px ${color})` : 'none', flexShrink: 0 }}
+      >
+        <circle cx="10" cy="10" r="8.5" fill={`${color}22`} stroke={color} strokeWidth="1.6" />
+        <text
+          x="10"
+          y="14"
+          textAnchor="middle"
+          fontSize="10"
+          fontWeight="900"
+          fill={color}
+          fontFamily="var(--font-heading)"
+        >
+          E
+        </text>
+      </svg>
+      {amount.toLocaleString()}
+      <span
+        style={{
+          fontSize: big ? '0.5em' : '0.85em',
+          fontWeight: 700,
+          opacity: 0.8,
+          letterSpacing: '0.03em',
+          textShadow: 'none',
+        }}
+      >
+        ecoin
+      </span>
+    </span>
+  )
+}
+
 // --- Seat (single PC station) ---
 const ROW_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
@@ -437,17 +494,13 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm text-muted-foreground">Нийт дүн</span>
                 {seats > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    {seats} PC × {duration}ц × ₮{center.pricePerHour.toLocaleString()}
+                  <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                    {seats} PC × {duration}ц ×{' '}
+                    <EcoinAmount amount={center.pricePerHour} color={center.color} size="sm" />
                   </span>
                 )}
               </div>
-              <span
-                className="text-2xl font-black"
-                style={{ color: center.color, fontFamily: 'var(--font-heading)' }}
-              >
-                ₮{totalPrice.toLocaleString()}
-              </span>
+              <EcoinAmount amount={totalPrice} color={center.color} size="lg" />
             </div>
 
             {/* 18+ age confirmation */}
@@ -512,24 +565,23 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
           <div className="px-6 py-6 flex flex-col gap-5">
             <p className="text-sm text-muted-foreground">Дараах захиалгыг баталгаажуулна уу:</p>
             <div className="rounded-xl overflow-hidden border border-border">
-              {[
-                ['Заал', center.name],
-                ['Огноо', date],
-                ['Цаг', `${time} (${duration} цаг)`],
-                ['PC дугаар', Array.from(selectedSeats).sort((a,b) => a-b).map(i => `#${i+1}`).join(', ')],
-                ['PC тоо', `${seats} ширхэг`],
-                ['Тоглоом', game.name],
-                ['Үнэ', `₮${totalPrice.toLocaleString()}`],
-              ].map(([label, value], i) => (
+              {(
+                [
+                  ['Заал', center.name],
+                  ['Огноо', date],
+                  ['Цаг', `${time} (${duration} цаг)`],
+                  ['PC дугаар', Array.from(selectedSeats).sort((a,b) => a-b).map(i => `#${i+1}`).join(', ')],
+                  ['PC тоо', `${seats} ширхэг`],
+                  ['Тоглоом', game.name],
+                  ['Үнэ', <EcoinAmount key="ecoin" amount={totalPrice} color={center.color} size="sm" />],
+                ] as [string, React.ReactNode][]
+              ).map(([label, value], i) => (
                 <div
                   key={label}
                   className={`flex items-start justify-between px-4 py-3 text-sm gap-2 ${i % 2 === 0 ? 'bg-muted' : 'bg-card'}`}
                 >
                   <span className="text-muted-foreground shrink-0">{label}</span>
-                  <span
-                    className="font-semibold text-foreground text-right"
-                    style={label === 'Үнэ' ? { color: center.color, fontFamily: 'var(--font-heading)' } : undefined}
-                  >
+                  <span className="font-semibold text-foreground text-right">
                     {value}
                   </span>
                 </div>
