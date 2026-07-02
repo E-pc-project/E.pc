@@ -129,7 +129,7 @@ export function GamesSection({ onRegisterPC }: GamesSectionProps) {
             <span className="neon-text-cyan">ҮНЭЛГЭЭ</span>
           </h2>
           <p className="text-muted-foreground max-w-xl">
-            Дараах тоглоомуудаас сонгоод eSports залд захиалга өгнө үү. Үнэ нь цагаар тооцогдоно.
+            Дараах тоглоомуудаас сонгоод eSports заалд захиалга өгнө үү. Үнэ нь цагаар тооцогдоно.
           </p>
         </div>
         {/* Add center button — admins only */}

@@ -177,7 +177,7 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
             <div className="text-center py-12 text-muted-foreground text-sm">Уншиж байна...</div>
           ) : tab === 'bookings' ? (
             bookings.length === 0 ? (
-              <EmptyState text="Одоогоор захиалга алга" hint="Зал захиалахад энд харагдана." />
+              <EmptyState text="Одоогоор захиалга алга" hint="Заал захиалахад энд харагдана." />
             ) : (
               <div className="flex flex-col gap-2.5">
                 {bookings.map((b) => (

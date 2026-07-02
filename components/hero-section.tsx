@@ -98,7 +98,7 @@ export function HeroSection({ onBook }: HeroSectionProps) {
         </h1>
 
         <p className="text-muted-foreground text-base sm:text-lg max-w-xl mx-auto leading-relaxed mb-10">
-          Улаанбаатарын шилдэг eSports залуудыг нэг дороос хайж, захиалга өгч,
+          Улаанбаатарын шилдэг eSports заалуудыг нэг дороос хайж, захиалга өгч,
           тоглоомын туршлагаа эхлүүлэ.
         </p>
 
@@ -121,7 +121,7 @@ export function HeroSection({ onBook }: HeroSectionProps) {
               }}
               onFocus={() => setShowResults(true)}
               onBlur={() => setTimeout(() => setShowResults(false), 200)}
-              placeholder="eSports зал хайх..."
+              placeholder="eSports заал хайх..."
               className="w-full pl-12 pr-4 py-4 rounded-xl text-foreground placeholder-muted-foreground focus:outline-none transition-all duration-200 text-sm"
               style={{
                 background: "rgba(22,22,28,0.9)",
@@ -194,7 +194,7 @@ export function HeroSection({ onBook }: HeroSectionProps) {
               fontFamily: "var(--font-heading)",
             }}
           >
-            ЗАЛ ХАЙХ
+            ЗААЛ ХАЙХ
           </button>
           <button
             onClick={() =>

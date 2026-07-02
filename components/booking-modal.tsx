@@ -513,7 +513,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
             <p className="text-sm text-muted-foreground">Дараах захиалгыг баталгаажуулна уу:</p>
             <div className="rounded-xl overflow-hidden border border-border">
               {[
-                ['Зал', center.name],
+                ['Заал', center.name],
                 ['Огноо', date],
                 ['Цаг', `${time} (${duration} цаг)`],
                 ['PC дугаар', Array.from(selectedSeats).sort((a,b) => a-b).map(i => `#${i+1}`).join(', ')],
@@ -616,7 +616,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               <textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Тоглоомын туршлага, залын орчин, үйлчилгээний талаар..."
+                placeholder="Тоглоомын туршлага, заалын орчин, үйлчилгээний талаар..."
                 rows={3}
                 className="bg-input border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors resize-none leading-relaxed"
               />
