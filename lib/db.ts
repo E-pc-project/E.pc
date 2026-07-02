@@ -15,6 +15,7 @@ export interface UserRow {
   is_dev: number
   reset_code: string | null
   reset_expires: string | null
+  balance: number
   created_at: string
 }
 
@@ -91,6 +92,7 @@ async function db(): Promise<Client> {
           is_dev        INTEGER NOT NULL DEFAULT 0,
           reset_code    TEXT,
           reset_expires TEXT,
+          balance       INTEGER NOT NULL DEFAULT 0,
           created_at    TEXT NOT NULL
         )`)
       // Migrations for pre-existing databases missing these columns.
@@ -99,6 +101,7 @@ async function db(): Promise<Client> {
         'ALTER TABLE users ADD COLUMN is_dev INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE users ADD COLUMN reset_code TEXT',
         'ALTER TABLE users ADD COLUMN reset_expires TEXT',
+        'ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0',
       ]) {
         try {
           await client.execute(sql)
@@ -385,4 +388,26 @@ export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
     args: [email.toLowerCase()],
   })
   return rs.rows as unknown as BookingRow[]
+}
+
+/* ----------------------------- Wallet ---------------------------- */
+
+export async function getUserBalance(email: string): Promise<number> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT balance FROM users WHERE email = ?',
+    args: [email.toLowerCase()],
+  })
+  const row = rs.rows[0] as { balance?: number } | undefined
+  return row ? Number(row.balance) || 0 : 0
+}
+
+// Adds (or subtracts, with a negative amount) ecoin and returns the new balance.
+export async function addUserBalance(email: string, amount: number): Promise<number> {
+  const client = await db()
+  await client.execute({
+    sql: 'UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE email = ?',
+    args: [amount, email.toLowerCase()],
+  })
+  return getUserBalance(email)
 }

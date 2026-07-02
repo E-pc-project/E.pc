@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAuth } from './auth-context'
+import { useWallet } from '@/lib/use-wallet'
 
 export type SiteView = 'home' | 'games' | 'centers'
 
@@ -22,10 +23,12 @@ interface SiteHeaderProps {
   onRegisterPC: () => void
   onProfile: () => void
   onDevPanel: () => void
+  onWallet: () => void
 }
 
-export function SiteHeader({ view, onNavigate, onRegisterPC, onProfile, onDevPanel }: SiteHeaderProps) {
+export function SiteHeader({ view, onNavigate, onRegisterPC, onProfile, onDevPanel, onWallet }: SiteHeaderProps) {
   const { user, logout } = useAuth()
+  const { balance } = useWallet(user?.email)
   const [menuOpen, setMenuOpen] = useState(false)
 
   function goTo(target: SiteView) {
@@ -127,6 +130,35 @@ export function SiteHeader({ view, onNavigate, onRegisterPC, onProfile, onDevPan
 
           {user ? (
             <div className="flex items-center gap-3">
+              {/* Wallet — ecoin balance */}
+              <button
+                onClick={onWallet}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border transition-colors hover:border-neon-cyan"
+                style={{ borderColor: 'rgba(0,224,255,0.25)', background: 'rgba(0,224,255,0.06)' }}
+                title="Хэтэвч"
+              >
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" className="shrink-0">
+                  <circle cx="10" cy="10" r="8.5" fill="rgba(0,224,255,0.13)" stroke="#00e0ff" strokeWidth="1.6" />
+                  <text
+                    x="10"
+                    y="14"
+                    textAnchor="middle"
+                    fontSize="10"
+                    fontWeight="900"
+                    fill="#00e0ff"
+                    fontFamily="var(--font-heading)"
+                  >
+                    E
+                  </text>
+                </svg>
+                <span
+                  className="text-xs font-black text-neon-cyan"
+                  style={{ fontFamily: 'var(--font-heading)' }}
+                >
+                  {balance.toLocaleString()}
+                </span>
+              </button>
+
               <button
                 onClick={onProfile}
                 className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border transition-colors hover:border-neon-cyan group"

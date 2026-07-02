@@ -11,6 +11,7 @@ import { BookingModal } from "@/components/booking-modal";
 import { AddCenterModal, type EditCenterInput } from "@/components/add-center-modal";
 import { ProfileModal } from "@/components/profile-modal";
 import { DevDashboardModal } from "@/components/dev-dashboard-modal";
+import { WalletModal } from "@/components/wallet-modal";
 import { type EsportsCenter } from "@/lib/data";
 
 function AppInner() {
@@ -23,6 +24,7 @@ function AppInner() {
   const [editCenter, setEditCenter] = useState<EditCenterInput | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   function showToast(msg: string) {
@@ -70,6 +72,7 @@ function AppInner() {
         onRegisterPC={() => setAddCenterOpen(true)}
         onProfile={() => setProfileOpen(true)}
         onDevPanel={() => setDevPanelOpen(true)}
+        onWallet={() => setWalletOpen(true)}
       />
 
       <main>
@@ -166,6 +169,9 @@ function AppInner() {
           }}
         />
       )}
+
+      {/* Wallet — ecoin balance + top-up */}
+      {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
 
       {/* Booking modal */}
       {bookingCenter && (
