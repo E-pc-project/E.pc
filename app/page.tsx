@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AuthProvider, useAuth } from "@/components/auth-context";
 import { AuthModal } from "@/components/auth-modal";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader, type SiteView } from "@/components/site-header";
 import { HeroSection } from "@/components/hero-section";
 import { GamesSection } from "@/components/games-section";
 import { CommunityCenters } from "@/components/community-centers";
@@ -15,6 +15,7 @@ import { type EsportsCenter } from "@/lib/data";
 
 function AppInner() {
   const { user, isLoading } = useAuth();
+  const [view, setView] = useState<SiteView>("home");
   const [bookingCenter, setBookingCenter] = useState<EsportsCenter | null>(
     null,
   );
@@ -64,18 +65,26 @@ function AppInner() {
   return (
     <>
       <SiteHeader
+        view={view}
+        onNavigate={setView}
         onRegisterPC={() => setAddCenterOpen(true)}
         onProfile={() => setProfileOpen(true)}
         onDevPanel={() => setDevPanelOpen(true)}
       />
 
       <main>
-        <HeroSection onBook={setBookingCenter} />
-        <GamesSection onRegisterPC={() => setAddCenterOpen(true)} />
-        <CommunityCenters
-          onBook={setBookingCenter}
-          onAddCenter={() => setAddCenterOpen(true)}
-        />
+        {view === "home" && (
+          <HeroSection onBook={setBookingCenter} onNavigate={setView} />
+        )}
+        {view === "games" && (
+          <GamesSection onRegisterPC={() => setAddCenterOpen(true)} />
+        )}
+        {view === "centers" && (
+          <CommunityCenters
+            onBook={setBookingCenter}
+            onAddCenter={() => setAddCenterOpen(true)}
+          />
+        )}
 
         {/* Footer */}
         <footer

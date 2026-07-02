@@ -6,9 +6,10 @@ import { useCenters } from "@/lib/use-centers";
 
 interface HeroSectionProps {
   onBook: (center: EsportsCenter) => void;
+  onNavigate: (view: "games" | "centers") => void;
 }
 
-export function HeroSection({ onBook }: HeroSectionProps) {
+export function HeroSection({ onBook, onNavigate }: HeroSectionProps) {
   const [search, setSearch] = useState("");
   const [showResults, setShowResults] = useState(false);
   const { centers } = useCenters();
@@ -30,10 +31,6 @@ export function HeroSection({ onBook }: HeroSectionProps) {
             c.address.toLowerCase().includes(search.toLowerCase()),
         )
       : [];
-
-  function scrollToCenters() {
-    document.getElementById("centers")?.scrollIntoView({ behavior: "smooth" });
-  }
 
   return (
     <section
@@ -128,10 +125,10 @@ export function HeroSection({ onBook }: HeroSectionProps) {
                 border: "1px solid rgba(0,224,255,0.3)",
                 boxShadow: "0 0 20px rgba(0,224,255,0.1)",
               }}
-              onKeyDown={(e) => e.key === "Enter" && scrollToCenters()}
+              onKeyDown={(e) => e.key === "Enter" && onNavigate("centers")}
             />
             <button
-              onClick={scrollToCenters}
+              onClick={() => onNavigate("centers")}
               className="absolute right-2 px-4 py-2 rounded-lg text-xs font-bold text-background transition-all duration-200"
               style={{
                 background: "#00e0ff",
@@ -187,7 +184,7 @@ export function HeroSection({ onBook }: HeroSectionProps) {
         {/* CTA buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
           <button
-            onClick={scrollToCenters}
+            onClick={() => onNavigate("centers")}
             className="px-8 py-4 rounded-xl font-black text-background text-sm tracking-widest neon-glow-btn transition-all duration-200"
             style={{
               background: "#00e0ff",
@@ -197,11 +194,7 @@ export function HeroSection({ onBook }: HeroSectionProps) {
             ЗААЛ ХАЙХ
           </button>
           <button
-            onClick={() =>
-              document
-                .getElementById("games")
-                ?.scrollIntoView({ behavior: "smooth" })
-            }
+            onClick={() => onNavigate("games")}
             className="px-8 py-4 rounded-xl font-bold text-sm tracking-widest border transition-all duration-200 hover:bg-muted"
             style={{
               border: "1px solid rgba(255,69,200,0.4)",

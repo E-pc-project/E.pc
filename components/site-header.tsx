@@ -3,27 +3,46 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 
-const NAV_LINKS = [
-  { label: 'Нүүр', href: '#hero' },
-  { label: 'Тоглоомууд', href: '#games' },
-  { label: 'Төвүүд', href: '#community' },
-  { label: 'Захиалга', href: '#booking' },
+export type SiteView = 'home' | 'games' | 'centers'
+
+type NavItem =
+  | { label: string; view: SiteView }
+  | { label: string; scrollTo: string }
+
+const NAV_LINKS: NavItem[] = [
+  { label: 'Нүүр', view: 'home' },
+  { label: 'Тоглоомууд', view: 'games' },
+  { label: 'Төвүүд', view: 'centers' },
+  { label: 'Захиалга', scrollTo: '#booking' },
 ]
 
 interface SiteHeaderProps {
+  view: SiteView
+  onNavigate: (view: SiteView) => void
   onRegisterPC: () => void
   onProfile: () => void
   onDevPanel: () => void
 }
 
-export function SiteHeader({ onRegisterPC, onProfile, onDevPanel }: SiteHeaderProps) {
+export function SiteHeader({ view, onNavigate, onRegisterPC, onProfile, onDevPanel }: SiteHeaderProps) {
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  function scrollTo(href: string) {
+  function goTo(target: SiteView) {
+    onNavigate(target)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setMenuOpen(false)
+  }
+
+  function scrollToAnchor(href: string) {
     const el = document.querySelector(href)
     if (el) el.scrollIntoView({ behavior: 'smooth' })
     setMenuOpen(false)
+  }
+
+  function handleNavClick(link: NavItem) {
+    if ('view' in link) goTo(link.view)
+    else scrollToAnchor(link.scrollTo)
   }
 
   return (
@@ -31,7 +50,7 @@ export function SiteHeader({ onRegisterPC, onProfile, onDevPanel }: SiteHeaderPr
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
         {/* Logo */}
         <button
-          onClick={() => scrollTo('#hero')}
+          onClick={() => goTo('home')}
           className="flex items-center gap-2 group"
         >
           <span
@@ -47,16 +66,25 @@ export function SiteHeader({ onRegisterPC, onProfile, onDevPanel }: SiteHeaderPr
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map((link) => (
-            <button
-              key={link.href}
-              onClick={() => scrollTo(link.href)}
-              className="px-4 py-2 text-sm text-muted-foreground hover:text-neon-cyan transition-colors duration-200 rounded-lg hover:bg-muted relative group"
-            >
-              {link.label}
-              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-0 h-px bg-neon-cyan group-hover:w-3/4 transition-all duration-300" />
-            </button>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const active = 'view' in link && link.view === view
+            return (
+              <button
+                key={link.label}
+                onClick={() => handleNavClick(link)}
+                className={`px-4 py-2 text-sm transition-colors duration-200 rounded-lg hover:bg-muted relative group ${
+                  active ? 'text-neon-cyan' : 'text-muted-foreground hover:text-neon-cyan'
+                }`}
+              >
+                {link.label}
+                <span
+                  className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-px bg-neon-cyan transition-all duration-300 ${
+                    active ? 'w-3/4' : 'w-0 group-hover:w-3/4'
+                  }`}
+                />
+              </button>
+            )
+          })}
         </nav>
 
         {/* Right side */}
@@ -146,15 +174,20 @@ export function SiteHeader({ onRegisterPC, onProfile, onDevPanel }: SiteHeaderPr
       {/* Mobile menu */}
       {menuOpen && (
         <div className="md:hidden glass-card border-t border-border px-4 py-3 flex flex-col gap-1">
-          {NAV_LINKS.map((link) => (
-            <button
-              key={link.href}
-              onClick={() => scrollTo(link.href)}
-              className="text-left px-3 py-2.5 text-sm text-muted-foreground hover:text-neon-cyan hover:bg-muted rounded-lg transition-colors"
-            >
-              {link.label}
-            </button>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const active = 'view' in link && link.view === view
+            return (
+              <button
+                key={link.label}
+                onClick={() => handleNavClick(link)}
+                className={`text-left px-3 py-2.5 text-sm hover:bg-muted rounded-lg transition-colors ${
+                  active ? 'text-neon-cyan' : 'text-muted-foreground hover:text-neon-cyan'
+                }`}
+              >
+                {link.label}
+              </button>
+            )
+          })}
         </div>
       )}
     </header>
