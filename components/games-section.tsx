@@ -5,22 +5,26 @@ import { GAMES, type Game } from '@/lib/data'
 import { useAuth } from './auth-context'
 
 function GameCard({ game }: { game: Game }) {
-  const [expanded, setExpanded] = useState(false)
+  const [hovered, setHovered] = useState(false)
 
   return (
-    <button
-      onClick={() => setExpanded(!expanded)}
-      className="relative group text-left w-full transition-all duration-300"
-      aria-expanded={expanded}
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
+      tabIndex={0}
+      className="relative group text-left w-full transition-all duration-300 outline-none cursor-default"
+      aria-expanded={hovered}
     >
       <div
         className={`relative rounded-xl border transition-all duration-300 overflow-hidden ${
-          expanded ? 'neon-border-cyan' : 'border-border hover:border-opacity-50'
+          hovered ? 'neon-border-cyan' : 'border-border hover:border-opacity-50'
         }`}
         style={{
-          borderColor: expanded ? game.color : undefined,
-          boxShadow: expanded ? `0 0 16px ${game.color}30, inset 0 0 16px ${game.color}08` : undefined,
-          background: expanded
+          borderColor: hovered ? game.color : undefined,
+          boxShadow: hovered ? `0 0 16px ${game.color}30, inset 0 0 16px ${game.color}08` : undefined,
+          background: hovered
             ? `linear-gradient(135deg, rgba(22,22,28,0.97) 0%, ${game.color}10 100%)`
             : 'rgba(22,22,28,0.8)',
         }}
@@ -28,7 +32,7 @@ function GameCard({ game }: { game: Game }) {
         {/* Top accent line */}
         <div
           className="absolute top-0 left-0 right-0 h-px transition-all duration-300"
-          style={{ background: expanded ? game.color : 'transparent' }}
+          style={{ background: hovered ? game.color : 'transparent' }}
         />
 
         <div className="p-4">
@@ -68,10 +72,10 @@ function GameCard({ game }: { game: Game }) {
           <span className="text-xs text-muted-foreground">{game.players}</span>
         </div>
 
-        {/* Expanded description */}
-        {expanded && (
+        {/* Description — revealed on hover/focus */}
+        {hovered && (
           <div
-            className="px-4 pb-4 border-t"
+            className="px-4 pb-4 border-t float-in"
             style={{ borderColor: `${game.color}20` }}
           >
             <p className="text-xs text-muted-foreground leading-relaxed mt-3">
@@ -89,7 +93,7 @@ function GameCard({ game }: { game: Game }) {
           }}
         />
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -170,7 +174,7 @@ export function GamesSection({ onRegisterPC }: GamesSectionProps) {
       <p className="text-center text-xs text-muted-foreground mt-8">
         Нийт{' '}
         <span className="text-neon-cyan font-bold">{GAMES.length}</span> тоглоом
-        — тоглоомын дэлгэрэнгүй мэдээлэл харахын тулд дарна уу
+        — тоглоомын дэлгэрэнгүй мэдээлэл харахын тулд хулгана аваачна уу
       </p>
     </section>
   )
