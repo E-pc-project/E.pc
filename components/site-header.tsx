@@ -14,7 +14,7 @@ const NAV_LINKS: NavItem[] = [
   { label: 'Нүүр', view: 'home' },
   { label: 'Тоглоомууд', view: 'games' },
   { label: 'Төвүүд', view: 'centers' },
-  { label: 'Захиалга', scrollTo: '#booking' },
+  { label: 'Захиалга', view: 'centers' },
 ]
 
 interface SiteHeaderProps {
