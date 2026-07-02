@@ -30,6 +30,10 @@ export async function GET() {
       ownerName: c.owner_name,
       createdAt: c.created_at,
       color: ACCENTS[i % ACCENTS.length],
+      vipSeats: c.vip_seats
+        ? c.vip_seats.split(',').map(Number).filter(Boolean)
+        : [],
+      vipPricePerHour: c.vip_price_per_hour || 0,
     }))
     return Response.json({ centers })
   } catch (err) {
@@ -52,6 +56,8 @@ export async function POST(req: Request) {
       district,
       pricePerHour,
       notes,
+      vipSeats,
+      vipPricePerHour,
     } = body
 
     // Required fields per the request: phone, PC count, specs, location (+ name & owner)
@@ -84,6 +90,8 @@ export async function POST(req: Request) {
       district: district || '',
       pricePerHour: Number(pricePerHour) || 0,
       notes: notes || '',
+      vipSeats: Array.isArray(vipSeats) ? vipSeats.filter(Boolean).join(',') : '',
+      vipPricePerHour: Number(vipPricePerHour) || 0,
     })
 
     // Forward to the project inbox. Never fail the request if email is down.
@@ -143,7 +151,19 @@ export async function DELETE(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json()
-    const { id, ownerEmail, name, phone, pcCount, specs, location, district, pricePerHour } = body
+    const {
+      id,
+      ownerEmail,
+      name,
+      phone,
+      pcCount,
+      specs,
+      location,
+      district,
+      pricePerHour,
+      vipSeats,
+      vipPricePerHour,
+    } = body
     const numId = Number(String(id ?? '').replace(/^db-/, ''))
     if (!numId || !ownerEmail) {
       return Response.json({ error: 'id ба ownerEmail шаардлагатай.' }, { status: 400 })
@@ -162,6 +182,8 @@ export async function PATCH(req: Request) {
       location,
       district: district || '',
       pricePerHour: Number(pricePerHour) || 0,
+      vipSeats: Array.isArray(vipSeats) ? vipSeats.filter(Boolean).join(',') : '',
+      vipPricePerHour: Number(vipPricePerHour) || 0,
     }
     // Developers may edit any center; admins only their own.
     const requester = await getUserByEmail(ownerEmail)

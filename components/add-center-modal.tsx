@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useAuth } from './auth-context'
+import { SelectField } from './ui/select-field'
 
 export interface EditCenterInput {
   id: number
@@ -12,6 +13,8 @@ export interface EditCenterInput {
   pcCount: number
   pricePerHour: number
   specs: string
+  vipSeats: number[]
+  vipPricePerHour: number
 }
 
 interface AddCenterModalProps {
@@ -40,6 +43,7 @@ const MONITOR_OPTIONS = [
 ]
 
 const ACCENT = '#00e0ff'
+const VIP_GOLD = '#f5b942'
 
 export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModalProps) {
   const { user } = useAuth()
@@ -62,6 +66,10 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
   const [pricePerHour, setPricePerHour] = useState(
     editCenter?.pricePerHour ? String(editCenter.pricePerHour) : '',
   )
+  const [vipSeats, setVipSeats] = useState<Set<number>>(new Set(editCenter?.vipSeats || []))
+  const [vipPricePerHour, setVipPricePerHour] = useState(
+    editCenter?.vipPricePerHour ? String(editCenter.vipPricePerHour) : '',
+  )
 
   // Specs (үзүүлэлт)
   const [gpu, setGpu] = useState(pick(GPU_OPTIONS))
@@ -71,9 +79,19 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
   const [notes, setNotes] = useState('')
 
   const canSubmit = name && location && phone && pcCount && !loading
+  const pcCountNum = Number(pcCount) || 0
 
   function buildSpecs(): string {
     return [gpu, cpu, ram, monitor].filter(Boolean).join(' · ')
+  }
+
+  function toggleVipSeat(n: number) {
+    setVipSeats((prev) => {
+      const next = new Set(prev)
+      if (next.has(n)) next.delete(n)
+      else next.add(n)
+      return next
+    })
   }
 
   async function handleSubmit() {
@@ -96,6 +114,8 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
           district,
           pricePerHour: pricePerHour ? Number(pricePerHour) : 0,
           notes,
+          vipSeats: Array.from(vipSeats).filter((n) => n <= pcCountNum),
+          vipPricePerHour: vipPricePerHour ? Number(vipPricePerHour) : 0,
         }),
       })
       const data = await res.json()
@@ -209,10 +229,7 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Дүүрэг">
-                  <select value={district} onChange={(e) => setDistrict(e.target.value)} className={inputCls}>
-                    <option value="">Сонгох...</option>
-                    {DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                  <SelectField value={district} onChange={setDistrict} options={DISTRICTS} className={inputCls} accent={ACCENT} />
                 </Field>
                 <Field label="Утас *">
                   <input
@@ -248,33 +265,73 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
               </div>
             </div>
 
+            {/* Section: VIP суудал */}
+            <div className="flex flex-col gap-3">
+              <SectionLabel label="VIP суудал" />
+              {pcCountNum > 0 ? (
+                <>
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    VIP болгох PC-г дарж сонгоно уу ({vipSeats.size} сонгосон)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
+                    {Array.from({ length: pcCountNum }, (_, i) => i + 1).map((n) => {
+                      const active = vipSeats.has(n)
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => toggleVipSeat(n)}
+                          className="w-7 h-7 rounded-md text-[10px] font-bold shrink-0 transition-colors"
+                          style={
+                            active
+                              ? { background: `${VIP_GOLD}2e`, border: `1.5px solid ${VIP_GOLD}`, color: VIP_GOLD }
+                              : {
+                                  background: 'rgba(255,255,255,0.045)',
+                                  border: '1px solid rgba(255,255,255,0.12)',
+                                  color: 'rgba(255,255,255,0.4)',
+                                }
+                          }
+                        >
+                          {n}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {vipSeats.size > 0 && (
+                    <Field label="VIP цагийн үнэ (₮)">
+                      <input
+                        type="number"
+                        value={vipPricePerHour}
+                        onChange={(e) => setVipPricePerHour(e.target.value)}
+                        placeholder={pricePerHour || '3500'}
+                        min={0}
+                        className={inputCls}
+                      />
+                    </Field>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Эхлээд PC-ийн тоог оруулснаар VIP суудал сонгох боломжтой болно.
+                </p>
+              )}
+            </div>
+
             {/* Section: Үзүүлэлт */}
             <div className="flex flex-col gap-3">
               <SectionLabel label="PC үзүүлэлт" />
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Видео карт (GPU)">
-                  <select value={gpu} onChange={(e) => setGpu(e.target.value)} className={inputCls}>
-                    <option value="">Сонгох...</option>
-                    {GPU_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <SelectField value={gpu} onChange={setGpu} options={GPU_OPTIONS} className={inputCls} accent={ACCENT} />
                 </Field>
                 <Field label="Процессор (CPU)">
-                  <select value={cpu} onChange={(e) => setCpu(e.target.value)} className={inputCls}>
-                    <option value="">Сонгох...</option>
-                    {CPU_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SelectField value={cpu} onChange={setCpu} options={CPU_OPTIONS} className={inputCls} accent={ACCENT} />
                 </Field>
                 <Field label="RAM">
-                  <select value={ram} onChange={(e) => setRam(e.target.value)} className={inputCls}>
-                    <option value="">Сонгох...</option>
-                    {RAM_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  <SelectField value={ram} onChange={setRam} options={RAM_OPTIONS} className={inputCls} accent={ACCENT} />
                 </Field>
                 <Field label="Монитор">
-                  <select value={monitor} onChange={(e) => setMonitor(e.target.value)} className={inputCls}>
-                    <option value="">Сонгох...</option>
-                    {MONITOR_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
+                  <SelectField value={monitor} onChange={setMonitor} options={MONITOR_OPTIONS} className={inputCls} accent={ACCENT} />
                 </Field>
               </div>
               <Field label="Нэмэлт тэмдэглэл">

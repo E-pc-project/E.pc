@@ -32,6 +32,8 @@ export interface CenterRow {
   price_per_hour: number
   notes: string
   status: string
+  vip_seats: string
+  vip_price_per_hour: number
   created_at: string
 }
 
@@ -46,6 +48,18 @@ export interface BookingRow {
   seats: string
   game: string
   total_price: number
+  created_at: string
+}
+
+export interface NotificationRow {
+  id: number
+  admin_email: string
+  type: string
+  title: string
+  body: string
+  center_id: string
+  booking_id: number | null
+  read_at: string | null
   created_at: string
 }
 
@@ -111,20 +125,33 @@ async function db(): Promise<Client> {
       }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS centers (
-          id             INTEGER PRIMARY KEY AUTOINCREMENT,
-          owner_email    TEXT NOT NULL,
-          owner_name     TEXT NOT NULL,
-          name           TEXT NOT NULL,
-          phone          TEXT NOT NULL,
-          pc_count       INTEGER NOT NULL,
-          specs          TEXT NOT NULL DEFAULT '',
-          location       TEXT NOT NULL,
-          district       TEXT NOT NULL DEFAULT '',
-          price_per_hour INTEGER NOT NULL DEFAULT 0,
-          notes          TEXT NOT NULL DEFAULT '',
-          status         TEXT NOT NULL DEFAULT 'pending',
-          created_at     TEXT NOT NULL
+          id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_email        TEXT NOT NULL,
+          owner_name         TEXT NOT NULL,
+          name               TEXT NOT NULL,
+          phone              TEXT NOT NULL,
+          pc_count           INTEGER NOT NULL,
+          specs              TEXT NOT NULL DEFAULT '',
+          location           TEXT NOT NULL,
+          district           TEXT NOT NULL DEFAULT '',
+          price_per_hour     INTEGER NOT NULL DEFAULT 0,
+          notes              TEXT NOT NULL DEFAULT '',
+          status             TEXT NOT NULL DEFAULT 'pending',
+          vip_seats          TEXT NOT NULL DEFAULT '',
+          vip_price_per_hour INTEGER NOT NULL DEFAULT 0,
+          created_at         TEXT NOT NULL
         )`)
+      // Migrations for pre-existing databases missing these columns.
+      for (const sql of [
+        "ALTER TABLE centers ADD COLUMN vip_seats TEXT NOT NULL DEFAULT ''",
+        'ALTER TABLE centers ADD COLUMN vip_price_per_hour INTEGER NOT NULL DEFAULT 0',
+      ]) {
+        try {
+          await client.execute(sql)
+        } catch {
+          /* column already exists */
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS bookings (
           id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,6 +164,18 @@ async function db(): Promise<Client> {
           seats       TEXT NOT NULL DEFAULT '',
           game        TEXT NOT NULL DEFAULT '',
           total_price INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT NOT NULL
+        )`)
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          admin_email TEXT NOT NULL,
+          type        TEXT NOT NULL DEFAULT 'booking',
+          title       TEXT NOT NULL,
+          body        TEXT NOT NULL DEFAULT '',
+          center_id   TEXT NOT NULL DEFAULT '',
+          booking_id  INTEGER,
+          read_at     TEXT,
           created_at  TEXT NOT NULL
         )`)
     })()
@@ -208,6 +247,7 @@ export async function deleteUserAccount(email: string): Promise<boolean> {
   const e = email.toLowerCase()
   await client.execute({ sql: 'DELETE FROM centers WHERE owner_email = ?', args: [e] })
   await client.execute({ sql: 'DELETE FROM bookings WHERE user_email = ?', args: [e] })
+  await client.execute({ sql: 'DELETE FROM notifications WHERE admin_email = ?', args: [e] })
   const rs = await client.execute({ sql: 'DELETE FROM users WHERE email = ?', args: [e] })
   return rs.rowsAffected > 0
 }
@@ -225,12 +265,14 @@ export async function insertCenter(input: {
   district?: string
   pricePerHour?: number
   notes?: string
+  vipSeats?: string
+  vipPricePerHour?: number
 }): Promise<CenterRow> {
   const client = await db()
   const rs = await client.execute({
     sql: `INSERT INTO centers
-            (owner_email, owner_name, name, phone, pc_count, specs, location, district, price_per_hour, notes, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?) RETURNING *`,
+            (owner_email, owner_name, name, phone, pc_count, specs, location, district, price_per_hour, notes, status, vip_seats, vip_price_per_hour, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?) RETURNING *`,
     args: [
       input.ownerEmail.toLowerCase(),
       input.ownerName,
@@ -242,6 +284,8 @@ export async function insertCenter(input: {
       input.district ?? '',
       input.pricePerHour ?? 0,
       input.notes ?? '',
+      input.vipSeats ?? '',
+      input.vipPricePerHour ?? 0,
       new Date().toISOString(),
     ],
   })
@@ -261,6 +305,12 @@ export async function listCentersByOwner(email: string): Promise<CenterRow[]> {
     args: [email.toLowerCase()],
   })
   return rs.rows as unknown as CenterRow[]
+}
+
+export async function getCenterById(id: number): Promise<CenterRow | undefined> {
+  const client = await db()
+  const rs = await client.execute({ sql: 'SELECT * FROM centers WHERE id = ?', args: [id] })
+  return rs.rows[0] as unknown as CenterRow | undefined
 }
 
 export async function deleteCenter(id: number, ownerEmail: string): Promise<boolean> {
@@ -293,12 +343,14 @@ export async function updateCenter(
     location: string
     district: string
     pricePerHour: number
+    vipSeats: string
+    vipPricePerHour: number
   },
 ): Promise<boolean> {
   const client = await db()
   const rs = await client.execute({
     sql: `UPDATE centers
-             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?
+             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?, vip_seats = ?, vip_price_per_hour = ?
            WHERE id = ? AND owner_email = ?`,
     args: [
       fields.name,
@@ -308,6 +360,8 @@ export async function updateCenter(
       fields.location,
       fields.district,
       fields.pricePerHour,
+      fields.vipSeats,
+      fields.vipPricePerHour,
       id,
       ownerEmail.toLowerCase(),
     ],
@@ -326,12 +380,14 @@ export async function updateCenterById(
     location: string
     district: string
     pricePerHour: number
+    vipSeats: string
+    vipPricePerHour: number
   },
 ): Promise<boolean> {
   const client = await db()
   const rs = await client.execute({
     sql: `UPDATE centers
-             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?
+             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?, vip_seats = ?, vip_price_per_hour = ?
            WHERE id = ?`,
     args: [
       fields.name,
@@ -341,6 +397,8 @@ export async function updateCenterById(
       fields.location,
       fields.district,
       fields.pricePerHour,
+      fields.vipSeats,
+      fields.vipPricePerHour,
       id,
     ],
   })
@@ -390,6 +448,21 @@ export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
   return rs.rows as unknown as BookingRow[]
 }
 
+// All bookings for a given center on a given day — used to compute live
+// seat occupancy (client_id here matches the "db-<id>" ids used everywhere
+// centers are referenced on the client, so no id-stripping is needed).
+export async function listBookingsByCenterAndDate(
+  centerId: string,
+  date: string,
+): Promise<BookingRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM bookings WHERE center_id = ? AND date = ?',
+    args: [centerId, date],
+  })
+  return rs.rows as unknown as BookingRow[]
+}
+
 /* ----------------------------- Wallet ---------------------------- */
 
 export async function getUserBalance(email: string): Promise<number> {
@@ -419,6 +492,74 @@ export async function deductUserBalance(email: string, amount: number): Promise<
   const rs = await client.execute({
     sql: 'UPDATE users SET balance = balance - ? WHERE email = ? AND balance >= ?',
     args: [amount, email.toLowerCase(), amount],
+  })
+  return rs.rowsAffected > 0
+}
+
+/* -------------------------- Notifications ------------------------- */
+
+export async function insertNotification(input: {
+  adminEmail: string
+  type?: string
+  title: string
+  body?: string
+  centerId?: string
+  bookingId?: number
+}): Promise<NotificationRow> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `INSERT INTO notifications
+            (admin_email, type, title, body, center_id, booking_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.adminEmail.toLowerCase(),
+      input.type ?? 'booking',
+      input.title,
+      input.body ?? '',
+      input.centerId ?? '',
+      input.bookingId ?? null,
+      new Date().toISOString(),
+    ],
+  })
+  return rs.rows[0] as unknown as NotificationRow
+}
+
+export async function listNotificationsByAdmin(
+  email: string,
+  limit = 30,
+): Promise<NotificationRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM notifications WHERE admin_email = ? ORDER BY created_at DESC LIMIT ?',
+    args: [email.toLowerCase(), limit],
+  })
+  return rs.rows as unknown as NotificationRow[]
+}
+
+export async function countUnreadNotifications(email: string): Promise<number> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT COUNT(*) as n FROM notifications WHERE admin_email = ? AND read_at IS NULL',
+    args: [email.toLowerCase()],
+  })
+  const row = rs.rows[0] as { n?: number } | undefined
+  return row ? Number(row.n) || 0 : 0
+}
+
+export async function markNotificationRead(id: number, adminEmail: string): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'UPDATE notifications SET read_at = ? WHERE id = ? AND admin_email = ? AND read_at IS NULL',
+    args: [new Date().toISOString(), id, adminEmail.toLowerCase()],
+  })
+  return rs.rowsAffected > 0
+}
+
+export async function markAllNotificationsRead(adminEmail: string): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'UPDATE notifications SET read_at = ? WHERE admin_email = ? AND read_at IS NULL',
+    args: [new Date().toISOString(), adminEmail.toLowerCase()],
   })
   return rs.rowsAffected > 0
 }

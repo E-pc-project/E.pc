@@ -127,6 +127,8 @@ export function DevDashboardModal({ onClose, onEditCenter }: DevDashboardModalPr
                               pcCount: c.pcCount,
                               pricePerHour: c.pricePerHour,
                               specs: c.specs,
+                              vipSeats: c.vipSeats,
+                              vipPricePerHour: c.vipPricePerHour,
                             })
                           }
                           className="w-8 h-8 flex items-center justify-center rounded-lg border transition-colors hover:border-neon-cyan"

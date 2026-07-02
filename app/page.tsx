@@ -154,6 +154,8 @@ function AppInner() {
               pcCount: c.pcCount,
               pricePerHour: c.pricePerHour,
               specs: c.specs,
+              vipSeats: c.vipSeats,
+              vipPricePerHour: c.vipPricePerHour,
             });
           }}
         />

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 import { useWallet } from '@/lib/use-wallet'
+import { NotificationBell } from './notification-bell'
 
 export type SiteView = 'home' | 'games' | 'centers'
 
@@ -130,6 +131,9 @@ export function SiteHeader({ view, onNavigate, onRegisterPC, onProfile, onDevPan
 
           {user ? (
             <div className="flex items-center gap-3">
+              {/* Notifications — admins only, new bookings on their centers */}
+              <NotificationBell />
+
               {/* Wallet — ecoin balance */}
               <button
                 onClick={onWallet}

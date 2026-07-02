@@ -27,6 +27,8 @@ export async function GET(req: Request) {
       specs: c.specs,
       createdAt: c.created_at,
       color: ACCENTS[i % ACCENTS.length],
+      vipSeats: c.vip_seats ? c.vip_seats.split(',').map(Number).filter(Boolean) : [],
+      vipPricePerHour: c.vip_price_per_hour || 0,
     }))
 
     const bookings = bookingRows.map((b) => ({

@@ -42,6 +42,8 @@ export interface DbCenter {
   specs: string
   ownerName: string
   color: string
+  vipSeats: number[]
+  vipPricePerHour: number
 }
 
 /**
@@ -80,6 +82,8 @@ export function useCenters() {
           x: pos.x,
           y: pos.y,
           color: c.color || ACCENTS[i % ACCENTS.length],
+          vipSeats: c.vipSeats || [],
+          vipPricePerHour: c.vipPricePerHour || 0,
         }
       })
       setCenters(list)

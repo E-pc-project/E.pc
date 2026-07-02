@@ -26,6 +26,8 @@ interface MyCenter {
   specs: string
   createdAt: string
   color: string
+  vipSeats: number[]
+  vipPricePerHour: number
 }
 
 const ACCENT = '#00e0ff'

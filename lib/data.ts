@@ -26,6 +26,9 @@ export interface EsportsCenter {
   x: number
   y: number
   color: string
+  // 1-based seat numbers marked VIP by the center's admin
+  vipSeats: number[]
+  vipPricePerHour: number
 }
 
 export interface Review {
