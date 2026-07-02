@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { GAMES, type EsportsCenter } from '@/lib/data'
 import { useAuth } from './auth-context'
-import { useWallet } from '@/lib/use-wallet'
+import { useWallet, announceWalletBalance } from '@/lib/use-wallet'
 
 interface BookingModalProps {
   center: EsportsCenter
@@ -268,7 +268,7 @@ function SeatMap({
 
 export function BookingModal({ center, onClose, onComplete }: BookingModalProps) {
   const { user } = useAuth()
-  const { balance, reload: reloadWallet } = useWallet(user?.email)
+  const { balance } = useWallet(user?.email)
   const [step, setStep] = useState<Step>('details')
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState('')
@@ -329,12 +329,16 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
       const data = await res.json()
       if (!res.ok) {
         setConfirmError(data.error || 'Захиалга амжилтгүй боллоо.')
+        // The server includes the authoritative current balance even on failure
+        // (e.g. insufficient funds) — sync it so the shown balance is never stale.
+        if (typeof data.balance === 'number') announceWalletBalance(data.balance)
         setConfirming(false)
         return
       }
       window.dispatchEvent(new Event('epc:bookings-updated'))
-      window.dispatchEvent(new Event('epc:wallet-updated'))
-      reloadWallet()
+      // Push the server-confirmed post-deduction balance directly — avoids a
+      // race where an immediate re-fetch could observe a not-yet-settled value.
+      announceWalletBalance(data.balance)
       setStep('success')
     } catch {
       setConfirmError('Сервертэй холбогдож чадсангүй.')

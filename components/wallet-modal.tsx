@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useAuth } from './auth-context'
-import { useWallet } from '@/lib/use-wallet'
+import { useWallet, announceWalletBalance } from '@/lib/use-wallet'
 
 const ACCENT = '#00e0ff'
 
@@ -63,7 +63,7 @@ interface WalletModalProps {
 
 export function WalletModal({ onClose }: WalletModalProps) {
   const { user } = useAuth()
-  const { balance, loading, reload } = useWallet(user?.email)
+  const { balance, loading } = useWallet(user?.email)
 
   const [step, setStep] = useState<Step>('main')
   const [amount, setAmount] = useState<number | null>(null)
@@ -94,8 +94,8 @@ export function WalletModal({ onClose }: WalletModalProps) {
         return
       }
       setPaid({ amount: amount!, method: method! })
-      window.dispatchEvent(new Event('epc:wallet-updated'))
-      reload()
+      // Push the server-confirmed post-topup balance directly (see use-wallet.ts).
+      announceWalletBalance(data.balance)
       setStep('success')
     } catch {
       setError('Сервертэй холбогдож чадсангүй.')
