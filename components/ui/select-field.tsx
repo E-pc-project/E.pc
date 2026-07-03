@@ -35,6 +35,7 @@ export function SelectField({
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const normalized: Option[] = options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o))
   const selected = normalized.find((o) => o.value === value)
@@ -47,21 +48,27 @@ export function SelectField({
     setOpen((v) => !v)
   }
 
-  // Close on scroll/resize/Escape rather than tracking the trigger's
+  // Close on outside scroll/resize/Escape rather than tracking the trigger's
   // position continuously — simplest way to never render stale/detached.
+  // Scrolls inside the options panel itself must NOT close it, or long lists
+  // (24 time slots, GPU options) become impossible to scroll through.
   useEffect(() => {
     if (!open) return
+    function onScroll(e: Event) {
+      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target)) return
+      setOpen(false)
+    }
     function close() {
       setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') close()
     }
-    window.addEventListener('scroll', close, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', close)
     window.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', close)
       window.removeEventListener('keydown', onKey)
     }
@@ -94,6 +101,7 @@ export function SelectField({
             <>
               <div className="fixed inset-0 z-[100]" onClick={() => setOpen(false)} />
               <div
+                ref={panelRef}
                 className="fixed z-[101] rounded-lg py-1 overflow-y-auto"
                 style={{
                   top: rect.top,
