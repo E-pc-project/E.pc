@@ -5,7 +5,7 @@ import { GAMES, type EsportsCenter } from '@/lib/data'
 import { useAuth } from './auth-context'
 import { useWallet, announceWalletBalance } from '@/lib/use-wallet'
 import { useCenterAvailability } from '@/lib/use-availability'
-import { computeOccupiedSeats } from '@/lib/availability'
+import { computeOccupiedSeats, timeToHour } from '@/lib/availability'
 import { SelectField } from './ui/select-field'
 
 interface BookingModalProps {
@@ -25,6 +25,40 @@ const DURATIONS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,2
 
 function getTodayStr() {
   return new Date().toISOString().split('T')[0]
+}
+
+// E-Mongolia (demo) age check: 8+ hour and late-night (22:00+) bookings
+// require verified age instead of the self-declared 18+ checkbox.
+const EM_BLUE = '#1b7fd4'
+const EM_MIN_AGE = 18
+const EM_LONG_BOOKING_HOURS = 8
+const EM_NIGHT_HOUR = 22
+
+// Mongolian registry numbers encode the birth date: АА-YYMMDD-XX, where
+// births in 2000+ store the month as month+20 (e.g. 0521.. = 2005-01-..).
+function ageFromRegNumber(reg: string): number | null {
+  const m = reg.trim().toUpperCase().match(/^[А-ЯЁӨҮ]{2}(\d{2})(\d{2})(\d{2})\d{2}$/)
+  if (!m) return null
+  const yy = Number(m[1])
+  let mm = Number(m[2])
+  const dd = Number(m[3])
+  let year: number
+  if (mm >= 21 && mm <= 32) {
+    year = 2000 + yy
+    mm -= 20
+  } else if (mm >= 1 && mm <= 12) {
+    year = 1900 + yy
+  } else {
+    return null
+  }
+  if (dd < 1 || dd > 31) return null
+  const birth = new Date(year, mm - 1, dd)
+  if (Number.isNaN(birth.getTime())) return null
+  const now = new Date()
+  let age = now.getFullYear() - birth.getFullYear()
+  const monthDiff = now.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) age--
+  return age
 }
 
 // --- Ecoin currency badge (1 ecoin = 1 ₮) ---
@@ -309,6 +343,13 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
 
   const [ageConfirmed, setAgeConfirmed] = useState(false)
 
+  // E-Mongolia demo verification (required for 8h+ / 22:00+ bookings)
+  const [emOpen, setEmOpen] = useState(false)
+  const [emRegNumber, setEmRegNumber] = useState('')
+  const [emAge, setEmAge] = useState<number | null>(null)
+  const [emError, setEmError] = useState('')
+  const [emChecking, setEmChecking] = useState(false)
+
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
   const [comment, setComment] = useState('')
@@ -349,6 +390,11 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   const totalPrice =
     regularSelectedCount * center.pricePerHour * duration + vipSelectedCount * vipPricePerHour * duration
 
+  // Long (8h+) and late-night (22:00+) bookings need E-Mongolia-verified
+  // age; a self-declared checkbox is enough for everything else.
+  const needsEMongolia = duration >= EM_LONG_BOOKING_HOURS || timeToHour(time) >= EM_NIGHT_HOUR
+  const ageOk = needsEMongolia ? emAge !== null : ageConfirmed
+
   function toggleSeat(i: number) {
     setSelectedSeats((prev) => {
       const next = new Set(prev)
@@ -356,6 +402,29 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
       else next.add(i)
       return next
     })
+  }
+
+  async function handleEMongoliaVerify() {
+    setEmError('')
+    setEmChecking(true)
+    // Demo mode: parse the age straight from the registry number after a
+    // short "contacting E-Mongolia" pause. A real integration would redirect
+    // to the E-Mongolia OAuth flow instead.
+    await new Promise((r) => setTimeout(r, 700))
+    const age = ageFromRegNumber(emRegNumber)
+    if (age === null) {
+      setEmError('Регистрийн дугаар буруу байна. Жишээ: УБ05212233')
+      setEmChecking(false)
+      return
+    }
+    if (age < EM_MIN_AGE) {
+      setEmError(`Уучлаарай — ${EM_LONG_BOOKING_HOURS}+ цагийн болон ${EM_NIGHT_HOUR}:00-оос хойших захиалгыг зөвхөн 18 нас хүрсэн хэрэглэгч хийх боломжтой.`)
+      setEmChecking(false)
+      return
+    }
+    setEmAge(age)
+    setEmChecking(false)
+    setEmOpen(false)
   }
 
   function handleBook() {
@@ -586,59 +655,110 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               <EcoinAmount amount={totalPrice} color={center.color} size="lg" />
             </div>
 
-            {/* 18+ age confirmation */}
-            <label
-              className="flex items-start gap-3 cursor-pointer rounded-xl px-4 py-3 border transition-all duration-200 shrink-0"
-              style={{
-                borderColor: ageConfirmed ? `${center.color}50` : 'rgba(255,69,200,0.25)',
-                background: ageConfirmed ? `${center.color}08` : 'rgba(255,69,200,0.05)',
-              }}
-            >
-              <div className="relative mt-0.5 shrink-0">
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={ageConfirmed}
-                  onChange={(e) => setAgeConfirmed(e.target.checked)}
-                />
-                <div
-                  className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150"
-                  style={{
-                    background: ageConfirmed ? center.color : 'transparent',
-                    border: ageConfirmed ? `1px solid ${center.color}` : '1px solid rgba(255,69,200,0.5)',
-                  }}
-                >
-                  {ageConfirmed && (
-                    <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="none" stroke="#0a0a0d" strokeWidth="2" strokeLinecap="round">
-                      <path d="M2 6l3 3 5-5" />
-                    </svg>
-                  )}
+            {/* Age gate: E-Mongolia verification for 8h+ / 22:00+ bookings,
+                self-declared 18+ checkbox for everything else */}
+            {needsEMongolia ? (
+              <div
+                className="flex flex-col gap-2.5 rounded-xl px-4 py-3 border transition-all duration-200 shrink-0"
+                style={{
+                  borderColor: emAge !== null ? `${EM_BLUE}60` : 'rgba(255,69,200,0.25)',
+                  background: emAge !== null ? `${EM_BLUE}0d` : 'rgba(255,69,200,0.05)',
+                }}
+              >
+                {emAge !== null ? (
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                      style={{ background: EM_BLUE }}
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+                        <path d="M2 6l3 3 5-5" />
+                      </svg>
+                    </span>
+                    <span className="text-xs text-foreground">
+                      <span className="font-bold" style={{ color: EM_BLUE, fontFamily: 'var(--font-heading)' }}>
+                        E-MONGOLIA
+                      </span>{' '}
+                      — нас баталгаажсан ({emAge} настай)
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="font-bold" style={{ color: '#ff45c8' }}>{EM_LONG_BOOKING_HOURS}+ цагийн</span> болон{' '}
+                      <span className="font-bold" style={{ color: '#ff45c8' }}>{EM_NIGHT_HOUR}:00-оос хойших</span> захиалгад
+                      E-Mongolia-гаар насаа баталгаажуулах шаардлагатай.
+                    </p>
+                    <button
+                      onClick={() => setEmOpen(true)}
+                      className="py-2 rounded-lg text-xs font-black tracking-widest text-white transition-all duration-200"
+                      style={{ background: EM_BLUE, boxShadow: `0 0 14px ${EM_BLUE}50`, fontFamily: 'var(--font-heading)' }}
+                    >
+                      E-MONGOLIA-ГААР БАТАЛГААЖУУЛАХ
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <label
+                className="flex items-start gap-3 cursor-pointer rounded-xl px-4 py-3 border transition-all duration-200 shrink-0"
+                style={{
+                  borderColor: ageConfirmed ? `${center.color}50` : 'rgba(255,69,200,0.25)',
+                  background: ageConfirmed ? `${center.color}08` : 'rgba(255,69,200,0.05)',
+                }}
+              >
+                <div className="relative mt-0.5 shrink-0">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={ageConfirmed}
+                    onChange={(e) => setAgeConfirmed(e.target.checked)}
+                  />
+                  <div
+                    className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150"
+                    style={{
+                      background: ageConfirmed ? center.color : 'transparent',
+                      border: ageConfirmed ? `1px solid ${center.color}` : '1px solid rgba(255,69,200,0.5)',
+                    }}
+                  >
+                    {ageConfirmed && (
+                      <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="none" stroke="#0a0a0d" strokeWidth="2" strokeLinecap="round">
+                        <path d="M2 6l3 3 5-5" />
+                      </svg>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <span
-                  className="text-xs font-bold tracking-wide"
-                  style={{ color: ageConfirmed ? center.color : '#ff45c8', fontFamily: 'var(--font-heading)' }}
-                >
-                  18+
-                </span>
-                <span className="text-xs text-muted-foreground ml-1.5">
-                  Би 18 ба түүнээс дээш настай болохоо баталгаажуулж байна
-                </span>
-              </div>
-            </label>
+                <div>
+                  <span
+                    className="text-xs font-bold tracking-wide"
+                    style={{ color: ageConfirmed ? center.color : '#ff45c8', fontFamily: 'var(--font-heading)' }}
+                  >
+                    18+
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-1.5">
+                    Би 18 ба түүнээс дээш настай болохоо баталгаажуулж байна
+                  </span>
+                </div>
+              </label>
+            )}
 
             <button
               onClick={handleBook}
-              disabled={seats === 0 || !ageConfirmed}
+              disabled={seats === 0 || !ageOk}
               className="py-3 rounded-xl font-black text-background tracking-widest transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               style={{
                 background: center.color,
-                boxShadow: (seats === 0 || !ageConfirmed) ? 'none' : `0 0 20px ${center.color}50`,
+                boxShadow: (seats === 0 || !ageOk) ? 'none' : `0 0 20px ${center.color}50`,
                 fontFamily: 'var(--font-heading)',
               }}
             >
-              {seats === 0 ? 'PC СОНГОНО УУ' : !ageConfirmed ? '18+ БАТАЛГААЖУУЛНА УУ' : `${seats} PC ЗАХИАЛАХ`}
+              {seats === 0
+                ? 'PC СОНГОНО УУ'
+                : !ageOk
+                  ? needsEMongolia
+                    ? 'НАС БАТАЛГААЖУУЛНА УУ'
+                    : '18+ БАТАЛГААЖУУЛНА УУ'
+                  : `${seats} PC ЗАХИАЛАХ`}
             </button>
           </div>
         )}
@@ -794,6 +914,88 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               >
                 ИЛГЭЭХ
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* E-Mongolia verification overlay (demo) */}
+        {emOpen && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center px-6"
+            style={{ background: 'rgba(10,10,13,0.92)', backdropFilter: 'blur(4px)' }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl overflow-hidden"
+              style={{
+                background: '#12141c',
+                border: `1px solid ${EM_BLUE}50`,
+                boxShadow: `0 0 40px ${EM_BLUE}25`,
+              }}
+            >
+              <div className="h-0.5 w-full" style={{ background: EM_BLUE }} />
+              <div className="p-5 flex flex-col gap-4">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-white text-sm shrink-0"
+                    style={{ background: EM_BLUE, fontFamily: 'var(--font-heading)' }}
+                  >
+                    e
+                  </span>
+                  <div>
+                    <p className="text-sm font-black" style={{ color: EM_BLUE, fontFamily: 'var(--font-heading)' }}>
+                      E-MONGOLIA
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Нас баталгаажуулалт</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Регистрийн дугаараа оруулснаар таны нас E-Mongolia-гаас баталгаажина.
+                </p>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted-foreground uppercase tracking-widest">Регистрийн дугаар</label>
+                  <input
+                    type="text"
+                    value={emRegNumber}
+                    onChange={(e) => setEmRegNumber(e.target.value)}
+                    placeholder="УБ05212233"
+                    className="bg-input border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none transition-colors"
+                    style={{ borderColor: emError ? 'rgba(255,69,200,0.4)' : undefined }}
+                  />
+                </div>
+
+                {emError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                    {emError}
+                  </p>
+                )}
+
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={() => {
+                      setEmOpen(false)
+                      setEmError('')
+                    }}
+                    disabled={emChecking}
+                    className="flex-1 py-2.5 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                  >
+                    Болих
+                  </button>
+                  <button
+                    onClick={handleEMongoliaVerify}
+                    disabled={emChecking || !emRegNumber.trim()}
+                    className="flex-1 py-2.5 rounded-lg text-xs font-black tracking-widest text-white transition-all duration-200 disabled:opacity-40"
+                    style={{ background: EM_BLUE, fontFamily: 'var(--font-heading)' }}
+                  >
+                    {emChecking ? 'ШАЛГАЖ БАЙНА...' : 'БАТАЛГААЖУУЛАХ'}
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-muted-foreground text-center opacity-70">
+                  Демо горим — жинхэнэ E-Mongolia холболт хийгдээгүй.
+                </p>
+              </div>
             </div>
           </div>
         )}
