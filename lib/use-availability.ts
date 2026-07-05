@@ -6,18 +6,19 @@ import type { BookingSlot } from './availability'
 const POLL_MS = 9000
 
 /**
- * Fetches a center's bookings for a given date so the seat map can show
- * real occupancy. Re-fetches on `epc:bookings-updated` (same-tab, e.g. the
- * user who just booked) and polls periodically so a seat someone else
- * booked in a different browser flips to occupied without a manual reload.
+ * Fetches every room's bookings for a center on a given date in one
+ * request, so each room card in the booking modal can show real
+ * occupancy. Re-fetches on `epc:bookings-updated` (same-tab, e.g. the user
+ * who just booked) and polls periodically so a seat someone else booked
+ * in a different browser flips to occupied without a manual reload.
  */
 export function useCenterAvailability(centerId: string, date: string) {
-  const [bookings, setBookings] = useState<BookingSlot[]>([])
+  const [byRoom, setByRoom] = useState<Record<string, BookingSlot[]>>({})
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(async () => {
     if (!centerId || !date) {
-      setBookings([])
+      setByRoom({})
       setLoading(false)
       return
     }
@@ -27,7 +28,7 @@ export function useCenterAvailability(centerId: string, date: string) {
         { cache: 'no-store' },
       )
       const data = await res.json()
-      if (res.ok) setBookings(data.bookings || [])
+      if (res.ok) setByRoom(data.byRoom || {})
     } catch {
       /* keep previous data on network error */
     }
@@ -46,5 +47,7 @@ export function useCenterAvailability(centerId: string, date: string) {
     }
   }, [reload])
 
-  return { bookings, loading, reload }
+  const bookingsForRoom = useCallback((roomId: number) => byRoom[String(roomId)] || [], [byRoom])
+
+  return { bookingsForRoom, loading, reload }
 }

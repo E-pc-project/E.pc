@@ -151,11 +151,10 @@ function AppInner() {
               location: c.location,
               district: c.district,
               phone: c.phone,
-              pcCount: c.pcCount,
-              pricePerHour: c.pricePerHour,
               specs: c.specs,
-              vipSeats: c.vipSeats,
-              vipPricePerHour: c.vipPricePerHour,
+              openTime: c.openTime,
+              closeTime: c.closeTime,
+              photo: c.photo,
             });
           }}
         />

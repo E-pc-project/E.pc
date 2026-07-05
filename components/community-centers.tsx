@@ -96,9 +96,14 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
             {raw.map((c) => (
               <div
                 key={c.id}
-                className="glass-card rounded-xl p-5 relative border transition-all duration-300 hover:-translate-y-0.5"
+                className="glass-card rounded-xl overflow-hidden relative border transition-all duration-300 hover:-translate-y-0.5"
                 style={{ borderColor: `${c.color}30` }}
               >
+                {c.photo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.photo} alt={c.name} className="w-full h-28 object-cover" />
+                )}
+                <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="min-w-0">
                     <h3 className="font-bold text-foreground text-sm truncate" style={{ fontFamily: 'var(--font-heading)' }}>
@@ -110,7 +115,7 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
                     className="text-xs font-bold px-2 py-1 rounded shrink-0"
                     style={{ background: `${c.color}20`, color: c.color, border: `1px solid ${c.color}30`, fontFamily: 'var(--font-heading)' }}
                   >
-                    {c.pcCount} PC
+                    {c.totalSeats} PC
                   </span>
                 </div>
 
@@ -127,6 +132,13 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
                     </svg>
                     {c.phone}
                   </span>
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3 h-3 shrink-0 opacity-60" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+                      <circle cx="8" cy="8" r="6.5" />
+                      <path d="M8 4.5V8l3 2" strokeLinecap="round" />
+                    </svg>
+                    {c.openTime && c.closeTime ? `${c.openTime} - ${c.closeTime}` : '24 цаг'}
+                  </span>
                   {c.specs && (
                     <span className="flex items-start gap-1.5">
                       <svg className="w-3 h-3 mt-0.5 shrink-0 opacity-60" viewBox="0 0 16 16" fill="currentColor">
@@ -139,8 +151,8 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
 
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-lg font-black" style={{ color: c.color, fontFamily: 'var(--font-heading)' }}>
-                    {c.pricePerHour ? `₮${c.pricePerHour.toLocaleString()}` : '₮—'}
-                    <span className="text-xs font-normal text-muted-foreground">/цаг</span>
+                    {c.priceFrom ? `₮${c.priceFrom.toLocaleString()}` : '₮—'}
+                    <span className="text-xs font-normal text-muted-foreground">-с/цаг</span>
                   </span>
                   <span className="text-[10px] text-muted-foreground">@{c.ownerName}</span>
                 </div>
@@ -152,6 +164,7 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
                 >
                   СУУДАЛ ЗАХИАЛАХ
                 </button>
+                </div>
               </div>
             ))}
           </div>

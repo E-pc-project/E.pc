@@ -14,6 +14,29 @@ export const dynamic = 'force-dynamic'
 
 // Alternating neon accent for community-submitted centers.
 const ACCENTS = ['#00e0ff', '#ff45c8']
+const ROOM_CATEGORIES = ['regular', 'vip']
+
+interface RoomInput {
+  name: string
+  category: string
+  seatCount: number
+  pricePerHour: number
+}
+
+function parseRooms(raw: unknown): RoomInput[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (r) =>
+        r && typeof r.name === 'string' && r.name.trim() && ROOM_CATEGORIES.includes(r.category) && Number(r.seatCount) > 0,
+    )
+    .map((r) => ({
+      name: r.name.trim(),
+      category: r.category,
+      seatCount: Number(r.seatCount) || 0,
+      pricePerHour: Number(r.pricePerHour) || 0,
+    }))
+}
 
 export async function GET() {
   try {
@@ -24,16 +47,16 @@ export async function GET() {
       district: c.district,
       location: c.location,
       phone: c.phone,
-      pcCount: c.pc_count,
-      pricePerHour: c.price_per_hour,
+      totalSeats: c.total_seats,
+      priceFrom: c.price_from || 0,
+      hasVip: Boolean(c.has_vip),
       specs: c.specs,
       ownerName: c.owner_name,
       createdAt: c.created_at,
       color: ACCENTS[i % ACCENTS.length],
-      vipSeats: c.vip_seats
-        ? c.vip_seats.split(',').map(Number).filter(Boolean)
-        : [],
-      vipPricePerHour: c.vip_price_per_hour || 0,
+      openTime: c.open_time,
+      closeTime: c.close_time,
+      photo: c.photo,
     }))
     return Response.json({ centers })
   } catch (err) {
@@ -50,17 +73,16 @@ export async function POST(req: Request) {
       ownerEmail,
       name,
       phone,
-      pcCount,
       specs,
       location,
       district,
-      pricePerHour,
       notes,
-      vipSeats,
-      vipPricePerHour,
+      openTime,
+      closeTime,
+      photo,
+      rooms,
     } = body
 
-    // Required fields per the request: phone, PC count, specs, location (+ name & owner)
     if (!ownerEmail) {
       return Response.json({ error: 'Эхлээд нэвтэрнэ үү.' }, { status: 401 })
     }
@@ -72,9 +94,16 @@ export async function POST(req: Request) {
         { status: 403 },
       )
     }
-    if (!name || !phone || !location || !pcCount) {
+    const parsedRooms = parseRooms(rooms)
+    if (!name || !phone || !location) {
       return Response.json(
-        { error: 'Төвийн нэр, утас, байршил, PC тоо заавал шаардлагатай.' },
+        { error: 'Төвийн нэр, утас, байршил заавал шаардлагатай.' },
+        { status: 400 },
+      )
+    }
+    if (parsedRooms.length === 0) {
+      return Response.json(
+        { error: 'Дор хаяж нэг өрөө (суудлын тоо, үнэтэй) нэмнэ үү.' },
         { status: 400 },
       )
     }
@@ -84,14 +113,14 @@ export async function POST(req: Request) {
       ownerName: ownerName || ownerEmail,
       name,
       phone,
-      pcCount: Number(pcCount) || 0,
       specs: specs || '',
       location,
       district: district || '',
-      pricePerHour: Number(pricePerHour) || 0,
       notes: notes || '',
-      vipSeats: Array.isArray(vipSeats) ? vipSeats.filter(Boolean).join(',') : '',
-      vipPricePerHour: Number(vipPricePerHour) || 0,
+      openTime: openTime || '',
+      closeTime: closeTime || '',
+      photo: photo || '',
+      rooms: parsedRooms,
     })
 
     // Forward to the project inbox. Never fail the request if email is down.
@@ -151,39 +180,26 @@ export async function DELETE(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json()
-    const {
-      id,
-      ownerEmail,
-      name,
-      phone,
-      pcCount,
-      specs,
-      location,
-      district,
-      pricePerHour,
-      vipSeats,
-      vipPricePerHour,
-    } = body
+    const { id, ownerEmail, name, phone, specs, location, district, openTime, closeTime, photo } = body
     const numId = Number(String(id ?? '').replace(/^db-/, ''))
     if (!numId || !ownerEmail) {
       return Response.json({ error: 'id ба ownerEmail шаардлагатай.' }, { status: 400 })
     }
-    if (!name || !phone || !location || !pcCount) {
+    if (!name || !phone || !location) {
       return Response.json(
-        { error: 'Төвийн нэр, утас, байршил, PC тоо заавал шаардлагатай.' },
+        { error: 'Төвийн нэр, утас, байршил заавал шаардлагатай.' },
         { status: 400 },
       )
     }
     const fields = {
       name,
       phone,
-      pcCount: Number(pcCount) || 0,
       specs: specs || '',
       location,
       district: district || '',
-      pricePerHour: Number(pricePerHour) || 0,
-      vipSeats: Array.isArray(vipSeats) ? vipSeats.filter(Boolean).join(',') : '',
-      vipPricePerHour: Number(vipPricePerHour) || 0,
+      openTime: openTime || '',
+      closeTime: closeTime || '',
+      photo: photo || '',
     }
     // Developers may edit any center; admins only their own.
     const requester = await getUserByEmail(ownerEmail)

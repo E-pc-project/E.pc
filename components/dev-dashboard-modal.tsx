@@ -93,7 +93,7 @@ export function DevDashboardModal({ onClose, onEditCenter }: DevDashboardModalPr
                         {c.name}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {c.district || c.location} · {c.pcCount} PC · ₮{(c.pricePerHour || 0).toLocaleString()}/цаг
+                        {c.district || c.location} · {c.totalSeats} PC · ₮{(c.priceFrom || 0).toLocaleString()}-с/цаг
                       </p>
                       {c.specs && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.specs}</p>}
                       <p className="text-[11px] mt-1" style={{ color: c.color }}>эзэн: @{c.ownerName}</p>
@@ -124,11 +124,10 @@ export function DevDashboardModal({ onClose, onEditCenter }: DevDashboardModalPr
                               location: c.location,
                               district: c.district,
                               phone: c.phone,
-                              pcCount: c.pcCount,
-                              pricePerHour: c.pricePerHour,
                               specs: c.specs,
-                              vipSeats: c.vipSeats,
-                              vipPricePerHour: c.vipPricePerHour,
+                              openTime: c.openTime,
+                              closeTime: c.closeTime,
+                              photo: c.photo,
                             })
                           }
                           className="w-8 h-8 flex items-center justify-center rounded-lg border transition-colors hover:border-neon-cyan"

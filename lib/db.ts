@@ -34,6 +34,26 @@ export interface CenterRow {
   status: string
   vip_seats: string
   vip_price_per_hour: number
+  open_time: string
+  close_time: string
+  photo: string
+  created_at: string
+}
+
+// listCenters()/listCentersByOwner() join against rooms to compute these.
+export interface CenterWithAggregatesRow extends CenterRow {
+  total_seats: number
+  price_from: number | null
+  has_vip: number
+}
+
+export interface RoomRow {
+  id: number
+  center_id: number
+  name: string
+  category: string
+  seat_count: number
+  price_per_hour: number
   created_at: string
 }
 
@@ -42,6 +62,8 @@ export interface BookingRow {
   user_email: string
   center_id: string
   center_name: string
+  room_id: number
+  room_name: string
   date: string
   time: string
   duration: number
@@ -145,6 +167,9 @@ async function db(): Promise<Client> {
       for (const sql of [
         "ALTER TABLE centers ADD COLUMN vip_seats TEXT NOT NULL DEFAULT ''",
         'ALTER TABLE centers ADD COLUMN vip_price_per_hour INTEGER NOT NULL DEFAULT 0',
+        "ALTER TABLE centers ADD COLUMN open_time TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE centers ADD COLUMN close_time TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE centers ADD COLUMN photo TEXT NOT NULL DEFAULT ''",
       ]) {
         try {
           await client.execute(sql)
@@ -166,6 +191,17 @@ async function db(): Promise<Client> {
           total_price INTEGER NOT NULL DEFAULT 0,
           created_at  TEXT NOT NULL
         )`)
+      // Migrations for pre-existing databases missing these columns.
+      for (const sql of [
+        'ALTER TABLE bookings ADD COLUMN room_id INTEGER NOT NULL DEFAULT 0',
+        "ALTER TABLE bookings ADD COLUMN room_name TEXT NOT NULL DEFAULT ''",
+      ]) {
+        try {
+          await client.execute(sql)
+        } catch {
+          /* column already exists */
+        }
+      }
       await client.execute(`
         CREATE TABLE IF NOT EXISTS notifications (
           id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,6 +214,50 @@ async function db(): Promise<Client> {
           read_at     TEXT,
           created_at  TEXT NOT NULL
         )`)
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS rooms (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          center_id      INTEGER NOT NULL,
+          name           TEXT NOT NULL,
+          category       TEXT NOT NULL DEFAULT 'regular',
+          seat_count     INTEGER NOT NULL,
+          price_per_hour INTEGER NOT NULL DEFAULT 0,
+          created_at     TEXT NOT NULL
+        )`)
+      // One-time backfill: centers created before rooms existed get a room
+      // (or two, if they had VIP seats) derived from their legacy
+      // pc_count/vip_seats fields, so they stay bookable. Only touches
+      // centers that don't have any rooms yet, so it's safe to re-run.
+      const orphanCenters = await client.execute(`
+        SELECT c.* FROM centers c
+        LEFT JOIN rooms r ON r.center_id = c.id
+        WHERE r.id IS NULL`)
+      for (const row of orphanCenters.rows as unknown as CenterRow[]) {
+        const vipSeatCount = row.vip_seats ? row.vip_seats.split(',').filter(Boolean).length : 0
+        const regularSeatCount = Math.max(0, (row.pc_count || 0) - vipSeatCount)
+        const now = new Date().toISOString()
+        if (regularSeatCount > 0) {
+          await client.execute({
+            sql: `INSERT INTO rooms (center_id, name, category, seat_count, price_per_hour, created_at)
+                  VALUES (?, 'Ерөнхий', 'regular', ?, ?, ?)`,
+            args: [row.id, regularSeatCount, row.price_per_hour || 0, now],
+          })
+        }
+        if (vipSeatCount > 0) {
+          await client.execute({
+            sql: `INSERT INTO rooms (center_id, name, category, seat_count, price_per_hour, created_at)
+                  VALUES (?, 'VIP', 'vip', ?, ?, ?)`,
+            args: [row.id, vipSeatCount, row.vip_price_per_hour || row.price_per_hour || 0, now],
+          })
+        }
+        if (regularSeatCount === 0 && vipSeatCount === 0) {
+          await client.execute({
+            sql: `INSERT INTO rooms (center_id, name, category, seat_count, price_per_hour, created_at)
+                  VALUES (?, 'Ерөнхий', 'regular', 1, ?, ?)`,
+            args: [row.id, row.price_per_hour || 0, now],
+          })
+        }
+      }
     })()
   }
   await g.__epcSchema
@@ -245,6 +325,10 @@ export async function updatePassword(email: string, passwordHash: string): Promi
 export async function deleteUserAccount(email: string): Promise<boolean> {
   const client = await db()
   const e = email.toLowerCase()
+  await client.execute({
+    sql: 'DELETE FROM rooms WHERE center_id IN (SELECT id FROM centers WHERE owner_email = ?)',
+    args: [e],
+  })
   await client.execute({ sql: 'DELETE FROM centers WHERE owner_email = ?', args: [e] })
   await client.execute({ sql: 'DELETE FROM bookings WHERE user_email = ?', args: [e] })
   await client.execute({ sql: 'DELETE FROM notifications WHERE admin_email = ?', args: [e] })
@@ -259,52 +343,74 @@ export async function insertCenter(input: {
   ownerName: string
   name: string
   phone: string
-  pcCount: number
   specs: string
   location: string
   district?: string
-  pricePerHour?: number
   notes?: string
-  vipSeats?: string
-  vipPricePerHour?: number
+  openTime?: string
+  closeTime?: string
+  photo?: string
+  rooms: { name: string; category: string; seatCount: number; pricePerHour: number }[]
 }): Promise<CenterRow> {
   const client = await db()
+  // pc_count / price_per_hour are legacy NOT NULL columns kept only as a
+  // mirror for anything that hasn't been migrated to read from rooms.
+  const totalSeats = input.rooms.reduce((sum, r) => sum + r.seatCount, 0)
+  const priceFrom = input.rooms.length ? Math.min(...input.rooms.map((r) => r.pricePerHour)) : 0
   const rs = await client.execute({
     sql: `INSERT INTO centers
-            (owner_email, owner_name, name, phone, pc_count, specs, location, district, price_per_hour, notes, status, vip_seats, vip_price_per_hour, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?) RETURNING *`,
+            (owner_email, owner_name, name, phone, pc_count, specs, location, district, price_per_hour, notes, status, vip_seats, vip_price_per_hour, open_time, close_time, photo, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', '', 0, ?, ?, ?, ?) RETURNING *`,
     args: [
       input.ownerEmail.toLowerCase(),
       input.ownerName,
       input.name,
       input.phone,
-      input.pcCount,
+      totalSeats,
       input.specs,
       input.location,
       input.district ?? '',
-      input.pricePerHour ?? 0,
+      priceFrom,
       input.notes ?? '',
-      input.vipSeats ?? '',
-      input.vipPricePerHour ?? 0,
+      input.openTime ?? '',
+      input.closeTime ?? '',
+      input.photo ?? '',
       new Date().toISOString(),
     ],
   })
-  return rs.rows[0] as unknown as CenterRow
+  const center = rs.rows[0] as unknown as CenterRow
+  const now = new Date().toISOString()
+  for (const room of input.rooms) {
+    await client.execute({
+      sql: `INSERT INTO rooms (center_id, name, category, seat_count, price_per_hour, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [center.id, room.name, room.category, room.seatCount, room.pricePerHour, now],
+    })
+  }
+  return center
 }
 
-export async function listCenters(): Promise<CenterRow[]> {
+const CENTER_AGGREGATES_SQL = `
+  SELECT c.*,
+    COALESCE(SUM(r.seat_count), 0) as total_seats,
+    MIN(r.price_per_hour) as price_from,
+    MAX(CASE WHEN r.category = 'vip' THEN 1 ELSE 0 END) as has_vip
+  FROM centers c
+  LEFT JOIN rooms r ON r.center_id = c.id`
+
+export async function listCenters(): Promise<CenterWithAggregatesRow[]> {
   const client = await db()
-  const rs = await client.execute('SELECT * FROM centers ORDER BY created_at DESC')
-  return rs.rows as unknown as CenterRow[]
+  const rs = await client.execute(`${CENTER_AGGREGATES_SQL} GROUP BY c.id ORDER BY c.created_at DESC`)
+  return rs.rows as unknown as CenterWithAggregatesRow[]
 }
 
-export async function listCentersByOwner(email: string): Promise<CenterRow[]> {
+export async function listCentersByOwner(email: string): Promise<CenterWithAggregatesRow[]> {
   const client = await db()
   const rs = await client.execute({
-    sql: 'SELECT * FROM centers WHERE owner_email = ? ORDER BY created_at DESC',
+    sql: `${CENTER_AGGREGATES_SQL} WHERE c.owner_email = ? GROUP BY c.id ORDER BY c.created_at DESC`,
     args: [email.toLowerCase()],
   })
-  return rs.rows as unknown as CenterRow[]
+  return rs.rows as unknown as CenterWithAggregatesRow[]
 }
 
 export async function getCenterById(id: number): Promise<CenterRow | undefined> {
@@ -338,30 +444,28 @@ export async function updateCenter(
   fields: {
     name: string
     phone: string
-    pcCount: number
     specs: string
     location: string
     district: string
-    pricePerHour: number
-    vipSeats: string
-    vipPricePerHour: number
+    openTime: string
+    closeTime: string
+    photo: string
   },
 ): Promise<boolean> {
   const client = await db()
   const rs = await client.execute({
     sql: `UPDATE centers
-             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?, vip_seats = ?, vip_price_per_hour = ?
+             SET name = ?, phone = ?, specs = ?, location = ?, district = ?, open_time = ?, close_time = ?, photo = ?
            WHERE id = ? AND owner_email = ?`,
     args: [
       fields.name,
       fields.phone,
-      fields.pcCount,
       fields.specs,
       fields.location,
       fields.district,
-      fields.pricePerHour,
-      fields.vipSeats,
-      fields.vipPricePerHour,
+      fields.openTime,
+      fields.closeTime,
+      fields.photo,
       id,
       ownerEmail.toLowerCase(),
     ],
@@ -375,33 +479,89 @@ export async function updateCenterById(
   fields: {
     name: string
     phone: string
-    pcCount: number
     specs: string
     location: string
     district: string
-    pricePerHour: number
-    vipSeats: string
-    vipPricePerHour: number
+    openTime: string
+    closeTime: string
+    photo: string
   },
 ): Promise<boolean> {
   const client = await db()
   const rs = await client.execute({
     sql: `UPDATE centers
-             SET name = ?, phone = ?, pc_count = ?, specs = ?, location = ?, district = ?, price_per_hour = ?, vip_seats = ?, vip_price_per_hour = ?
+             SET name = ?, phone = ?, specs = ?, location = ?, district = ?, open_time = ?, close_time = ?, photo = ?
            WHERE id = ?`,
     args: [
       fields.name,
       fields.phone,
-      fields.pcCount,
       fields.specs,
       fields.location,
       fields.district,
-      fields.pricePerHour,
-      fields.vipSeats,
-      fields.vipPricePerHour,
+      fields.openTime,
+      fields.closeTime,
+      fields.photo,
       id,
     ],
   })
+  return rs.rowsAffected > 0
+}
+
+/* ----------------------------- Rooms ------------------------------ */
+
+export async function insertRoom(input: {
+  centerId: number
+  name: string
+  category: string
+  seatCount: number
+  pricePerHour: number
+}): Promise<RoomRow> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `INSERT INTO rooms (center_id, name, category, seat_count, price_per_hour, created_at)
+          VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.centerId,
+      input.name,
+      input.category,
+      input.seatCount,
+      input.pricePerHour,
+      new Date().toISOString(),
+    ],
+  })
+  return rs.rows[0] as unknown as RoomRow
+}
+
+export async function listRoomsByCenter(centerId: number): Promise<RoomRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM rooms WHERE center_id = ? ORDER BY id ASC',
+    args: [centerId],
+  })
+  return rs.rows as unknown as RoomRow[]
+}
+
+export async function getRoomById(id: number): Promise<RoomRow | undefined> {
+  const client = await db()
+  const rs = await client.execute({ sql: 'SELECT * FROM rooms WHERE id = ?', args: [id] })
+  return rs.rows[0] as unknown as RoomRow | undefined
+}
+
+export async function updateRoom(
+  id: number,
+  fields: { name: string; category: string; seatCount: number; pricePerHour: number },
+): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `UPDATE rooms SET name = ?, category = ?, seat_count = ?, price_per_hour = ? WHERE id = ?`,
+    args: [fields.name, fields.category, fields.seatCount, fields.pricePerHour, id],
+  })
+  return rs.rowsAffected > 0
+}
+
+export async function deleteRoom(id: number): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({ sql: 'DELETE FROM rooms WHERE id = ?', args: [id] })
   return rs.rowsAffected > 0
 }
 
@@ -411,6 +571,8 @@ export async function insertBooking(input: {
   userEmail: string
   centerId: string
   centerName: string
+  roomId: number
+  roomName: string
   date: string
   time: string
   duration: number
@@ -421,12 +583,14 @@ export async function insertBooking(input: {
   const client = await db()
   const rs = await client.execute({
     sql: `INSERT INTO bookings
-            (user_email, center_id, center_name, date, time, duration, seats, game, total_price, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+            (user_email, center_id, center_name, room_id, room_name, date, time, duration, seats, game, total_price, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
     args: [
       input.userEmail.toLowerCase(),
       input.centerId,
       input.centerName,
+      input.roomId,
+      input.roomName,
       input.date,
       input.time,
       input.duration,
@@ -448,9 +612,10 @@ export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
   return rs.rows as unknown as BookingRow[]
 }
 
-// All bookings for a given center on a given day — used to compute live
-// seat occupancy (client_id here matches the "db-<id>" ids used everywhere
-// centers are referenced on the client, so no id-stripping is needed).
+// All bookings for a given center on a given day, across every one of its
+// rooms — one query covers every room card the booking modal shows
+// (client_id here matches the "db-<id>" ids used everywhere centers are
+// referenced on the client, so no id-stripping is needed).
 export async function listBookingsByCenterAndDate(
   centerId: string,
   date: string,
@@ -459,6 +624,20 @@ export async function listBookingsByCenterAndDate(
   const rs = await client.execute({
     sql: 'SELECT * FROM bookings WHERE center_id = ? AND date = ?',
     args: [centerId, date],
+  })
+  return rs.rows as unknown as BookingRow[]
+}
+
+// Scoped to a single room — used for the server-side seat-conflict check
+// on booking creation.
+export async function listBookingsByRoomAndDate(
+  roomId: number,
+  date: string,
+): Promise<BookingRow[]> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT * FROM bookings WHERE room_id = ? AND date = ?',
+    args: [roomId, date],
   })
   return rs.rows as unknown as BookingRow[]
 }

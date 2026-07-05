@@ -16,8 +16,11 @@ export interface EsportsCenter {
   district: string
   address: string
   phone: string
-  pcCount: number
-  pricePerHour: number
+  // Sum of seats across all this center's rooms, and the cheapest room's
+  // hourly price — the booking modal fetches the actual room breakdown.
+  totalSeats: number
+  priceFrom: number
+  hasVip: boolean
   rating: number
   reviewCount: number
   openHours: string
@@ -26,9 +29,7 @@ export interface EsportsCenter {
   x: number
   y: number
   color: string
-  // 1-based seat numbers marked VIP by the center's admin
-  vipSeats: number[]
-  vipPricePerHour: number
+  photo: string
 }
 
 export interface Review {

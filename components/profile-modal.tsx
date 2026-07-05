@@ -6,6 +6,7 @@ import { useAuth } from './auth-context'
 interface Booking {
   id: number
   centerName: string
+  roomName: string
   date: string
   time: string
   duration: number
@@ -21,13 +22,15 @@ interface MyCenter {
   district: string
   location: string
   phone: string
-  pcCount: number
-  pricePerHour: number
+  totalSeats: number
+  priceFrom: number
+  hasVip: boolean
   specs: string
   createdAt: string
   color: string
-  vipSeats: number[]
-  vipPricePerHour: number
+  openTime: string
+  closeTime: string
+  photo: string
 }
 
 const ACCENT = '#00e0ff'
@@ -193,7 +196,7 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
                         {b.centerName}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {b.date} · {b.time} · {b.duration}ц {b.seats && `· PC ${b.seats}`}
+                        {b.date} · {b.time} · {b.duration}ц {b.roomName && `· ${b.roomName}`} {b.seats && `· PC ${b.seats}`}
                       </p>
                       {b.game && <p className="text-[11px] text-muted-foreground mt-0.5">🎮 {b.game}</p>}
                     </div>
@@ -225,7 +228,7 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
                         {c.name}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {c.district || c.location} · {c.pcCount} PC · ₮{(c.pricePerHour || 0).toLocaleString()}/цаг
+                        {c.district || c.location} · {c.totalSeats} PC · ₮{(c.priceFrom || 0).toLocaleString()}-с/цаг
                       </p>
                       {c.specs && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{c.specs}</p>}
                     </div>

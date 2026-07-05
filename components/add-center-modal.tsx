@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 import { SelectField } from './ui/select-field'
+import { useRooms, announceRoomsUpdated, type RoomDto } from '@/lib/use-rooms'
 
 export interface EditCenterInput {
   id: number
@@ -10,11 +11,10 @@ export interface EditCenterInput {
   location: string
   district: string
   phone: string
-  pcCount: number
-  pricePerHour: number
   specs: string
-  vipSeats: number[]
-  vipPricePerHour: number
+  openTime: string
+  closeTime: string
+  photo: string
 }
 
 interface AddCenterModalProps {
@@ -41,9 +41,49 @@ const MONITOR_OPTIONS = [
   '1080p 144Hz', '1080p 165Hz', '1080p 240Hz',
   '1440p 144Hz', '1440p 165Hz', '1440p 240Hz', '4K 144Hz',
 ]
+const TIME_OPTIONS = [
+  '00:00','01:00','02:00','03:00','04:00','05:00','06:00','07:00','08:00',
+  '09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00',
+  '18:00','19:00','20:00','21:00','22:00','23:00',
+]
 
 const ACCENT = '#00e0ff'
 const VIP_GOLD = '#f5b942'
+
+// Shrinks + JPEG-compresses an uploaded photo client-side before it's sent
+// as a data-URL — this project has no object storage configured, so a
+// center's photo lives straight in the `centers.photo` TEXT column.
+function resizeImageToDataUrl(file: File, maxWidth = 800, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read failed'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('decode failed'))
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width)
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('no canvas context'))
+        ctx.drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+interface RoomDraft {
+  name: string
+  category: 'regular' | 'vip'
+  seatCount: string
+  pricePerHour: string
+}
 
 export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModalProps) {
   const { user } = useAuth()
@@ -62,13 +102,23 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
   const [location, setLocation] = useState(editCenter?.location || '')
   const [district, setDistrict] = useState(editCenter?.district || '')
   const [phone, setPhone] = useState(editCenter?.phone || '')
-  const [pcCount, setPcCount] = useState(editCenter ? String(editCenter.pcCount) : '')
-  const [pricePerHour, setPricePerHour] = useState(
-    editCenter?.pricePerHour ? String(editCenter.pricePerHour) : '',
+
+  // Operating hours
+  const [is24h, setIs24h] = useState(!(editCenter?.openTime && editCenter?.closeTime))
+  const [openTime, setOpenTime] = useState(editCenter?.openTime || '09:00')
+  const [closeTime, setCloseTime] = useState(editCenter?.closeTime || '23:00')
+
+  // Photo
+  const [photo, setPhoto] = useState(editCenter?.photo || '')
+  const [photoError, setPhotoError] = useState('')
+
+  // Rooms — new centers batch their initial rooms into the create request;
+  // existing centers manage rooms independently (see ExistingRoomRow).
+  const [roomDrafts, setRoomDrafts] = useState<RoomDraft[]>(
+    isEdit ? [] : [{ name: '', category: 'regular', seatCount: '', pricePerHour: '' }],
   )
-  const [vipSeats, setVipSeats] = useState<Set<number>>(new Set(editCenter?.vipSeats || []))
-  const [vipPricePerHour, setVipPricePerHour] = useState(
-    editCenter?.vipPricePerHour ? String(editCenter.vipPricePerHour) : '',
+  const { rooms: existingRooms, loading: roomsLoading } = useRooms(
+    isEdit ? String(editCenter!.id) : null,
   )
 
   // Specs (үзүүлэлт)
@@ -78,20 +128,35 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
   const [monitor, setMonitor] = useState(pick(MONITOR_OPTIONS))
   const [notes, setNotes] = useState('')
 
-  const canSubmit = name && location && phone && pcCount && !loading
-  const pcCountNum = Number(pcCount) || 0
+  const validRoomDrafts = roomDrafts.filter((r) => r.name.trim() && Number(r.seatCount) > 0)
+  const canSubmit = Boolean(
+    name && location && phone && !loading && (isEdit || validRoomDrafts.length > 0),
+  )
 
   function buildSpecs(): string {
     return [gpu, cpu, ram, monitor].filter(Boolean).join(' · ')
   }
 
-  function toggleVipSeat(n: number) {
-    setVipSeats((prev) => {
-      const next = new Set(prev)
-      if (next.has(n)) next.delete(n)
-      else next.add(n)
-      return next
-    })
+  function addRoomDraft() {
+    setRoomDrafts((prev) => [...prev, { name: '', category: 'regular', seatCount: '', pricePerHour: '' }])
+  }
+  function updateRoomDraft(index: number, patch: Partial<RoomDraft>) {
+    setRoomDrafts((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+  }
+  function removeRoomDraft(index: number) {
+    setRoomDrafts((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoError('')
+    try {
+      setPhoto(await resizeImageToDataUrl(file))
+    } catch {
+      setPhotoError('Зураг боловсруулахад алдаа гарлаа.')
+    }
   }
 
   async function handleSubmit() {
@@ -108,14 +173,21 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
           ownerEmail: user?.email,
           name,
           phone,
-          pcCount: Number(pcCount),
           specs: buildSpecs(),
           location,
           district,
-          pricePerHour: pricePerHour ? Number(pricePerHour) : 0,
           notes,
-          vipSeats: Array.from(vipSeats).filter((n) => n <= pcCountNum),
-          vipPricePerHour: vipPricePerHour ? Number(vipPricePerHour) : 0,
+          openTime: is24h ? '' : openTime,
+          closeTime: is24h ? '' : closeTime,
+          photo,
+          rooms: isEdit
+            ? undefined
+            : validRoomDrafts.map((r) => ({
+                name: r.name.trim(),
+                category: r.category,
+                seatCount: Number(r.seatCount) || 0,
+                pricePerHour: Number(r.pricePerHour) || 0,
+              })),
         }),
       })
       const data = await res.json()
@@ -241,79 +313,116 @@ export function AddCenterModal({ onClose, onCreated, editCenter }: AddCenterModa
                   />
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="PC-ийн тоо *">
-                  <input
-                    type="number"
-                    value={pcCount}
-                    onChange={(e) => setPcCount(e.target.value)}
-                    placeholder="40"
-                    min={1}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="Цагийн үнэ (₮)">
-                  <input
-                    type="number"
-                    value={pricePerHour}
-                    onChange={(e) => setPricePerHour(e.target.value)}
-                    placeholder="2500"
-                    min={0}
-                    className={inputCls}
-                  />
-                </Field>
-              </div>
             </div>
 
-            {/* Section: VIP суудал */}
+            {/* Section: Ажиллах цаг */}
             <div className="flex flex-col gap-3">
-              <SectionLabel label="VIP суудал" />
-              {pcCountNum > 0 ? (
-                <>
-                  <p className="text-xs text-muted-foreground -mt-1">
-                    VIP болгох PC-г дарж сонгоно уу ({vipSeats.size} сонгосон)
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
-                    {Array.from({ length: pcCountNum }, (_, i) => i + 1).map((n) => {
-                      const active = vipSeats.has(n)
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => toggleVipSeat(n)}
-                          className="w-7 h-7 rounded-md text-[10px] font-bold shrink-0 transition-colors"
-                          style={
-                            active
-                              ? { background: `${VIP_GOLD}2e`, border: `1.5px solid ${VIP_GOLD}`, color: VIP_GOLD }
-                              : {
-                                  background: 'rgba(255,255,255,0.045)',
-                                  border: '1px solid rgba(255,255,255,0.12)',
-                                  color: 'rgba(255,255,255,0.4)',
-                                }
-                          }
-                        >
-                          {n}
-                        </button>
-                      )
-                    })}
+              <SectionLabel label="Ажиллах цаг" />
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <div className="relative shrink-0">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={is24h}
+                    onChange={(e) => setIs24h(e.target.checked)}
+                  />
+                  <div
+                    className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150"
+                    style={{
+                      background: is24h ? ACCENT : 'transparent',
+                      border: is24h ? `1px solid ${ACCENT}` : '1px solid rgba(255,255,255,0.3)',
+                    }}
+                  >
+                    {is24h && (
+                      <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="none" stroke="#0a0a0d" strokeWidth="2" strokeLinecap="round">
+                        <path d="M2 6l3 3 5-5" />
+                      </svg>
+                    )}
                   </div>
-                  {vipSeats.size > 0 && (
-                    <Field label="VIP цагийн үнэ (₮)">
-                      <input
-                        type="number"
-                        value={vipPricePerHour}
-                        onChange={(e) => setVipPricePerHour(e.target.value)}
-                        placeholder={pricePerHour || '3500'}
-                        min={0}
-                        className={inputCls}
+                </div>
+                <span className="text-sm text-foreground">24 цагийн</span>
+              </label>
+              {!is24h && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Нээх цаг">
+                    <SelectField value={openTime} onChange={setOpenTime} options={TIME_OPTIONS} className={inputCls} accent={ACCENT} />
+                  </Field>
+                  <Field label="Хаах цаг">
+                    <SelectField value={closeTime} onChange={setCloseTime} options={TIME_OPTIONS} className={inputCls} accent={ACCENT} />
+                  </Field>
+                </div>
+              )}
+            </div>
+
+            {/* Section: Зураг */}
+            <div className="flex flex-col gap-3">
+              <SectionLabel label="Зураг" />
+              {photo ? (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo} alt="" className="w-full h-32 object-cover rounded-lg" />
+                  <button
+                    onClick={() => setPhoto('')}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center text-white"
+                    style={{ background: 'rgba(10,10,13,0.7)' }}
+                    aria-label="Зураг хасах"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <label
+                  className="flex items-center justify-center h-24 rounded-lg border border-dashed cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  style={{ borderColor: 'rgba(255,255,255,0.15)' }}
+                >
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                  + Зураг сонгох
+                </label>
+              )}
+              {photoError && <p className="text-xs text-red-400">{photoError}</p>}
+            </div>
+
+            {/* Section: Өрөөнүүд */}
+            <div className="flex flex-col gap-3">
+              <SectionLabel label="Өрөөнүүд" />
+              <p className="text-xs text-muted-foreground -mt-1">
+                PC-үүдээ өрөөгөөр ангилж, тус бүрд нь нэр, ангилал, суудлын тоо, цагийн үнэ өгнө үү.
+              </p>
+
+              {isEdit ? (
+                <>
+                  {roomsLoading ? (
+                    <p className="text-xs text-muted-foreground">Уншиж байна...</p>
+                  ) : (
+                    existingRooms.map((room) => (
+                      <ExistingRoomRow
+                        key={room.id}
+                        room={room}
+                        ownerEmail={user?.email}
                       />
-                    </Field>
+                    ))
                   )}
+                  <NewRoomForm centerId={editCenter!.id} ownerEmail={user?.email} />
                 </>
               ) : (
-                <p className="text-xs text-muted-foreground -mt-1">
-                  Эхлээд PC-ийн тоог оруулснаар VIP суудал сонгох боломжтой болно.
-                </p>
+                <>
+                  {roomDrafts.map((room, i) => (
+                    <RoomDraftRow
+                      key={i}
+                      room={room}
+                      onChange={(patch) => updateRoomDraft(i, patch)}
+                      onRemove={roomDrafts.length > 1 ? () => removeRoomDraft(i) : undefined}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addRoomDraft}
+                    className="py-2 rounded-lg text-xs font-bold border border-dashed transition-colors hover:bg-white/[0.03]"
+                    style={{ borderColor: `${ACCENT}40`, color: ACCENT }}
+                  >
+                    + Өрөө нэмэх
+                  </button>
+                </>
               )}
             </div>
 
@@ -411,6 +520,252 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="flex flex-col gap-1.5">
       <label className="text-xs text-muted-foreground uppercase tracking-widest">{label}</label>
       {children}
+    </div>
+  )
+}
+
+function CategoryToggle({
+  value,
+  onChange,
+}: {
+  value: 'regular' | 'vip'
+  onChange: (v: 'regular' | 'vip') => void
+}) {
+  return (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={() => onChange('regular')}
+        className="flex-1 py-1.5 rounded-md text-xs font-bold transition-colors"
+        style={
+          value === 'regular'
+            ? { background: `${ACCENT}20`, border: `1px solid ${ACCENT}`, color: ACCENT }
+            : { background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#9a9aae' }
+        }
+      >
+        Заал
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('vip')}
+        className="flex-1 py-1.5 rounded-md text-xs font-bold transition-colors"
+        style={
+          value === 'vip'
+            ? { background: `${VIP_GOLD}20`, border: `1px solid ${VIP_GOLD}`, color: VIP_GOLD }
+            : { background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#9a9aae' }
+        }
+      >
+        VIP
+      </button>
+    </div>
+  )
+}
+
+// A blank room row while creating a brand-new center — held in local state
+// and submitted together with the center itself.
+function RoomDraftRow({
+  room,
+  onChange,
+  onRemove,
+}: {
+  room: RoomDraft
+  onChange: (patch: Partial<RoomDraft>) => void
+  onRemove?: () => void
+}) {
+  return (
+    <div className="rounded-lg p-3 flex flex-col gap-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={room.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          placeholder="Жишээ: VIP1"
+          className={`${inputCls} flex-1`}
+        />
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg border transition-colors hover:border-neon-magenta"
+            style={{ borderColor: 'rgba(255,255,255,0.12)', color: '#ff45c8' }}
+            aria-label="Устгах"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <CategoryToggle value={room.category} onChange={(category) => onChange({ category })} />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          type="number"
+          value={room.seatCount}
+          onChange={(e) => onChange({ seatCount: e.target.value })}
+          placeholder="Суудлын тоо"
+          min={1}
+          className={inputCls}
+        />
+        <input
+          type="number"
+          value={room.pricePerHour}
+          onChange={(e) => onChange({ pricePerHour: e.target.value })}
+          placeholder="Цагийн үнэ (₮)"
+          min={0}
+          className={inputCls}
+        />
+      </div>
+    </div>
+  )
+}
+
+// An existing room on an already-created center — every change here is its
+// own immediate API call (save/delete), independent of the center-info
+// form's save button, so it never has to be diffed against bookings that
+// already reference this room's id.
+function ExistingRoomRow({ room, ownerEmail }: { room: RoomDto; ownerEmail?: string }) {
+  const [name, setName] = useState(room.name)
+  const [category, setCategory] = useState<'regular' | 'vip'>(room.category === 'vip' ? 'vip' : 'regular')
+  const [seatCount, setSeatCount] = useState(String(room.seatCount))
+  const [pricePerHour, setPricePerHour] = useState(String(room.pricePerHour))
+  const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const dirty =
+    name !== room.name ||
+    category !== room.category ||
+    seatCount !== String(room.seatCount) ||
+    pricePerHour !== String(room.pricePerHour)
+
+  async function save() {
+    if (!ownerEmail || !name.trim() || !(Number(seatCount) > 0)) return
+    setSaving(true)
+    await fetch('/api/rooms', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: room.id,
+        ownerEmail,
+        name: name.trim(),
+        category,
+        seatCount: Number(seatCount) || 0,
+        pricePerHour: Number(pricePerHour) || 0,
+      }),
+    })
+    setSaving(false)
+    announceRoomsUpdated()
+  }
+
+  async function del() {
+    if (!ownerEmail) return
+    await fetch(`/api/rooms?id=${room.id}&email=${encodeURIComponent(ownerEmail)}`, { method: 'DELETE' })
+    announceRoomsUpdated()
+  }
+
+  return (
+    <div className="rounded-lg p-3 flex flex-col gap-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className={`${inputCls} flex-1`}
+        />
+        {confirmDelete ? (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={del} className="px-2.5 py-1.5 rounded-md text-[11px] font-bold text-background" style={{ background: '#ff45c8' }}>
+              Тийм
+            </button>
+            <button onClick={() => setConfirmDelete(false)} className="px-2.5 py-1.5 rounded-md text-[11px] border border-border text-muted-foreground">
+              Болих
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg border transition-colors hover:border-neon-magenta"
+            style={{ borderColor: 'rgba(255,255,255,0.12)', color: '#ff45c8' }}
+            aria-label="Устгах"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      <CategoryToggle value={category} onChange={setCategory} />
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" value={seatCount} onChange={(e) => setSeatCount(e.target.value)} min={1} className={inputCls} />
+        <input type="number" value={pricePerHour} onChange={(e) => setPricePerHour(e.target.value)} min={0} className={inputCls} />
+      </div>
+      {dirty && (
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="py-1.5 rounded-md text-xs font-bold text-background disabled:opacity-40"
+          style={{ background: ACCENT }}
+        >
+          {saving ? 'ХАДГАЛЖ БАЙНА...' : 'ӨӨРЧЛӨЛТ ХАДГАЛАХ'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// The "add a new room" mini-form on an already-created center — posts
+// immediately on its own, independent of the main save button.
+function NewRoomForm({ centerId, ownerEmail }: { centerId: number; ownerEmail?: string }) {
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState<'regular' | 'vip'>('regular')
+  const [seatCount, setSeatCount] = useState('')
+  const [pricePerHour, setPricePerHour] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const canAdd = Boolean(ownerEmail && name.trim() && Number(seatCount) > 0 && !saving)
+
+  async function add() {
+    if (!canAdd) return
+    setSaving(true)
+    await fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        centerId,
+        ownerEmail,
+        name: name.trim(),
+        category,
+        seatCount: Number(seatCount) || 0,
+        pricePerHour: Number(pricePerHour) || 0,
+      }),
+    })
+    setSaving(false)
+    setName('')
+    setCategory('regular')
+    setSeatCount('')
+    setPricePerHour('')
+    announceRoomsUpdated()
+  }
+
+  return (
+    <div className="rounded-lg p-3 flex flex-col gap-2 border border-dashed" style={{ borderColor: `${ACCENT}40` }}>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Шинэ өрөөний нэр"
+        className={inputCls}
+      />
+      <CategoryToggle value={category} onChange={setCategory} />
+      <div className="grid grid-cols-2 gap-2">
+        <input type="number" value={seatCount} onChange={(e) => setSeatCount(e.target.value)} placeholder="Суудлын тоо" min={1} className={inputCls} />
+        <input type="number" value={pricePerHour} onChange={(e) => setPricePerHour(e.target.value)} placeholder="Цагийн үнэ (₮)" min={0} className={inputCls} />
+      </div>
+      <button
+        type="button"
+        onClick={add}
+        disabled={!canAdd}
+        className="py-1.5 rounded-md text-xs font-bold text-background disabled:opacity-40"
+        style={{ background: ACCENT }}
+      >
+        + Өрөө нэмэх
+      </button>
     </div>
   )
 }

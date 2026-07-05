@@ -78,7 +78,7 @@ function CenterNode({
                 <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '13px', color: '#f0f2f5', lineHeight: 1.2, marginBottom: '2px' }}>{center.name}</div>
                 <div style={{ fontSize: '11px', color: '#8a8a99' }}>{center.district} дүүрэг</div>
               </div>
-              <div style={{ background: `${center.color}20`, border: `1px solid ${center.color}35`, color: center.color, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '11px', padding: '2px 7px', borderRadius: '6px', whiteSpace: 'nowrap' }}>{center.pcCount} PC</div>
+              <div style={{ background: `${center.color}20`, border: `1px solid ${center.color}35`, color: center.color, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: '11px', padding: '2px 7px', borderRadius: '6px', whiteSpace: 'nowrap' }}>{center.totalSeats} PC</div>
             </div>
             {/* Body */}
             <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '7px' }}>
@@ -116,8 +116,8 @@ function CenterNode({
               {/* Price */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 2 }}>
                 <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: '18px', color: center.color }}>
-                  ₮{center.pricePerHour.toLocaleString()}
-                  <span style={{ fontSize: '11px', fontWeight: 400, color: '#8a8a99' }}>/цаг</span>
+                  ₮{center.priceFrom.toLocaleString()}
+                  <span style={{ fontSize: '11px', fontWeight: 400, color: '#8a8a99' }}>-с/цаг</span>
                 </span>
               </div>
             </div>

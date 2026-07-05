@@ -19,6 +19,13 @@ const DISTRICT_POS: Record<string, { x: number; y: number }> = {
 
 const ACCENTS = ['#00e0ff', '#ff45c8']
 
+// Empty open/close time means 24 hours (the default when an admin doesn't
+// set specific hours).
+function formatOpenHours(openTime: string, closeTime: string): string {
+  if (!openTime || !closeTime) return '24 цаг'
+  return `${openTime} - ${closeTime}`
+}
+
 // Spread multiple centers in the same district so their pins don't overlap.
 function positionFor(district: string, indexInDistrict: number): { x: number; y: number } {
   const base = DISTRICT_POS[district] || { x: 50, y: 50 }
@@ -37,13 +44,15 @@ export interface DbCenter {
   district: string
   location: string
   phone: string
-  pcCount: number
-  pricePerHour: number
+  totalSeats: number
+  priceFrom: number
+  hasVip: boolean
   specs: string
   ownerName: string
   color: string
-  vipSeats: number[]
-  vipPricePerHour: number
+  openTime: string
+  closeTime: string
+  photo: string
 }
 
 /**
@@ -73,17 +82,17 @@ export function useCenters() {
           district,
           address: c.location,
           phone: c.phone,
-          pcCount: c.pcCount,
-          pricePerHour: c.pricePerHour || 2000,
+          totalSeats: c.totalSeats || 0,
+          priceFrom: c.priceFrom || 0,
+          hasVip: Boolean(c.hasVip),
           rating: 0,
           reviewCount: 0,
-          openHours: '24 цаг',
+          openHours: formatOpenHours(c.openTime, c.closeTime),
           amenities: c.specs ? c.specs.split(' · ') : [],
           x: pos.x,
           y: pos.y,
           color: c.color || ACCENTS[i % ACCENTS.length],
-          vipSeats: c.vipSeats || [],
-          vipPricePerHour: c.vipPricePerHour || 0,
+          photo: c.photo || '',
         }
       })
       setCenters(list)

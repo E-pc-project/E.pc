@@ -14,7 +14,7 @@ export function HeroSection({ onBook, onNavigate }: HeroSectionProps) {
   const [showResults, setShowResults] = useState(false);
   const { centers } = useCenters();
 
-  const totalPCs = centers.reduce((sum, c) => sum + (c.pcCount || 0), 0);
+  const totalPCs = centers.reduce((sum, c) => sum + (c.totalSeats || 0), 0);
   const STATS = [
     { value: String(centers.length), label: "eSports Заал" },
     { value: totalPCs > 0 ? String(totalPCs) : "—", label: "PC Тоног" },
@@ -173,7 +173,7 @@ export function HeroSection({ onBook, onNavigate }: HeroSectionProps) {
                       fontFamily: "var(--font-heading)",
                     }}
                   >
-                    ₮{c.pricePerHour.toLocaleString()}
+                    ₮{c.priceFrom.toLocaleString()}
                   </span>
                 </button>
               ))}

@@ -6,6 +6,7 @@ import { useAuth } from './auth-context'
 import { useWallet, announceWalletBalance } from '@/lib/use-wallet'
 import { useCenterAvailability } from '@/lib/use-availability'
 import { computeOccupiedSeats, timeToHour } from '@/lib/availability'
+import { useRooms, type RoomDto } from '@/lib/use-rooms'
 import { SelectField } from './ui/select-field'
 
 interface BookingModalProps {
@@ -15,6 +16,7 @@ interface BookingModalProps {
 }
 
 type Step = 'details' | 'confirm' | 'success' | 'review'
+type Category = 'regular' | 'vip'
 
 const TIME_SLOTS = [
   '00:00','01:00','02:00','03:00','04:00','05:00','06:00','07:00','08:00',
@@ -33,6 +35,7 @@ function getTodayStr() {
 const EM_BLUE = '#1b7fd4'
 const EM_LONG_BOOKING_HOURS = 8
 const EM_NIGHT_HOUR = 22
+const VIP_GOLD = '#f5b942'
 
 // --- Ecoin currency badge (1 ecoin = 1 ₮) ---
 function EcoinAmount({
@@ -91,211 +94,118 @@ function EcoinAmount({
   )
 }
 
-// --- Seat (single PC station) ---
-const ROW_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-
-const VIP_GOLD = '#f5b942'
-
-function Seat({
+// --- Room seat (single PC station, lock/monitor iconography) ---
+function RoomSeat({
   index,
-  state,
-  vip,
+  occupied,
+  selected,
+  disabled,
   color,
   onToggle,
 }: {
   index: number
-  state: 'free' | 'selected' | 'occupied'
-  vip: boolean
+  occupied: boolean
+  selected: boolean
+  disabled: boolean
   color: string
   onToggle: (i: number) => void
 }) {
-  const base: React.CSSProperties = {
-    position: 'relative',
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-    transition: 'transform 0.12s ease, box-shadow 0.15s ease, background 0.15s ease',
-  }
-  const seatColor = vip ? VIP_GOLD : color
-  const style: React.CSSProperties =
-    state === 'selected'
-      ? {
-          ...base,
-          background: `${seatColor}2e`,
-          border: `1.5px solid ${seatColor}`,
-          color: seatColor,
-          boxShadow: `0 0 10px ${seatColor}70, inset 0 0 6px ${seatColor}40`,
-          transform: 'translateY(-1px)',
-        }
-      : state === 'occupied'
-        ? {
-            ...base,
-            background: 'rgba(255,69,200,0.10)',
-            border: '1px solid rgba(255,69,200,0.28)',
-            color: 'rgba(255,69,200,0.55)',
-            cursor: 'not-allowed',
-          }
-        : vip
-          ? {
-              ...base,
-              background: `${VIP_GOLD}14`,
-              border: `1px solid ${VIP_GOLD}55`,
-              color: VIP_GOLD,
-            }
-          : {
-              ...base,
-              background: 'rgba(255,255,255,0.045)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              color: 'rgba(255,255,255,0.35)',
-            }
+  const clickable = !occupied && !disabled
+  const style: React.CSSProperties = selected
+    ? { background: `${color}2e`, border: `1.5px solid ${color}`, color, boxShadow: `0 0 8px ${color}60` }
+    : occupied
+      ? { background: 'rgba(255,69,200,0.10)', border: '1px solid rgba(255,69,200,0.28)', color: 'rgba(255,69,200,0.55)' }
+      : disabled
+        ? { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.15)' }
+        : { background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)' }
 
   return (
     <button
       type="button"
-      disabled={state === 'occupied'}
+      disabled={!clickable}
       onClick={() => onToggle(index)}
-      title={
-        state === 'occupied'
-          ? `PC ${index + 1} — Захиалагдсан`
-          : vip
-            ? `PC ${index + 1} — VIP`
-            : `PC ${index + 1}`
-      }
-      className="group flex items-center justify-center text-[9px] font-bold seat-btn"
+      title={occupied ? `PC ${index + 1} — Захиалагдсан` : `PC ${index + 1}`}
+      className="relative w-9 h-9 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold transition-all duration-150"
       style={style}
     >
-      {/* monitor cap */}
-      <span
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-sm"
-        style={{
-          top: 3,
-          width: 13,
-          height: 2.5,
-          background:
-            state === 'selected' ? seatColor : state === 'occupied' ? 'rgba(255,69,200,0.5)' : vip ? `${VIP_GOLD}80` : 'rgba(255,255,255,0.25)',
-          boxShadow: state === 'selected' ? `0 0 5px ${seatColor}` : 'none',
-        }}
-      />
-      <span style={{ marginTop: 5 }}>{index + 1}</span>
-      {/* VIP star badge */}
-      {vip && state !== 'occupied' && (
-        <span
-          className="pointer-events-none absolute"
-          style={{ top: -3, right: -3, fontSize: 7, color: VIP_GOLD, textShadow: `0 0 4px ${VIP_GOLD}` }}
-        >
-          ★
-        </span>
+      {occupied ? (
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="3" y="5.5" width="6" height="4.5" rx="1" />
+          <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
+        </svg>
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="1.5" y="2" width="9" height="6" rx="0.8" />
+          <path d="M4.5 10.5h3M6 8v2.5" strokeLinecap="round" />
+        </svg>
       )}
-      {/* hover tooltip */}
-      {state !== 'occupied' && (
-        <span className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 bg-card border border-border text-foreground text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10">
-          PC {index + 1}{vip ? ' · VIP' : ''}
+      <span>{index + 1}</span>
+      {selected && (
+        <span
+          className="pointer-events-none absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+          style={{ background: color }}
+        >
+          <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="#0a0a0d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 6l3 3 5-5" />
+          </svg>
         </span>
       )}
     </button>
   )
 }
 
-// --- Seat Map Component ---
-function SeatMap({
-  total,
-  selected,
+function RoomCard({
+  room,
   occupied,
-  vipSeats,
-  onToggle,
+  selected,
+  disabled,
   color,
+  onToggle,
 }: {
-  total: number
-  selected: Set<number>
+  room: RoomDto
   occupied: Set<number>
-  vipSeats: Set<number>
-  onToggle: (i: number) => void
+  selected: Set<number>
+  disabled: boolean
   color: string
+  onToggle: (i: number) => void
 }) {
-  const cols = total <= 18 ? 6 : total <= 32 ? 8 : total <= 50 ? 10 : 12
-  const rows = Math.ceil(total / cols)
-  const aisleAfter = Math.floor(cols / 2) // gap between the two PC blocks
-
-  function seatState(i: number): 'free' | 'selected' | 'occupied' {
-    if (occupied.has(i)) return 'occupied'
-    if (selected.has(i)) return 'selected'
-    return 'free'
-  }
-
+  const free = room.seatCount - occupied.size
   return (
-    <div className="flex flex-col gap-2.5">
-      {/* Legend */}
-      <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded" style={{ borderColor: color, border: `1.5px solid ${color}`, background: `${color}2e` }} />
-          Сонгосон
+    <div
+      className="rounded-xl p-3 flex flex-col gap-2.5 transition-opacity duration-200"
+      style={{
+        background: 'rgba(11,11,15,0.8)',
+        border: `1px solid ${color}20`,
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-black tracking-wide" style={{ color, fontFamily: 'var(--font-heading)' }}>
+          {room.name}
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.12)' }} />
-          Сул
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded" style={{ background: 'rgba(255,69,200,0.10)', border: '1px solid rgba(255,69,200,0.28)' }} />
-          Захиалагдсан
-        </span>
-        {vipSeats.size > 0 && (
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded" style={{ background: `${VIP_GOLD}14`, border: `1px solid ${VIP_GOLD}55` }} />
-            VIP
+        {free === 0 ? (
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: 'rgba(255,69,200,0.12)', color: '#ff45c8' }}
+          >
+            ДҮҮРЭН
           </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">{free} сул</span>
         )}
       </div>
-
-      {/* Curved glowing screen */}
-      <div className="flex flex-col items-center gap-1 mb-0.5">
-        <div
-          className="w-3/4 text-center text-[10px] font-bold tracking-[0.4em] py-1"
-          style={{
-            color,
-            borderRadius: '0 0 50% 50% / 0 0 100% 100%',
-            background: `linear-gradient(180deg, ${color}22, transparent)`,
-            borderTop: `2px solid ${color}`,
-            boxShadow: `0 -2px 14px ${color}55`,
-            fontFamily: 'var(--font-heading)',
-          }}
-        >
-          ДЭЛГЭЦ
-        </div>
-      </div>
-
-      {/* Seat rows with center aisle + row letters */}
-      <div className="overflow-x-auto pb-1">
-        <div className="flex flex-col items-center gap-1.5 min-w-fit mx-auto">
-          {Array.from({ length: rows }, (_, r) => (
-            <div key={r} className="flex items-center gap-1.5">
-              <span className="w-4 text-center text-[9px] font-mono text-muted-foreground shrink-0">
-                {ROW_LETTERS[r]}
-              </span>
-              {Array.from({ length: cols }, (_, c) => {
-                const i = r * cols + c
-                const showAisle = c === aisleAfter
-                return (
-                  <div key={c} className="flex items-center">
-                    {showAisle && <span className="w-3 shrink-0" />}
-                    {i < total ? (
-                      <Seat index={i} state={seatState(i)} vip={vipSeats.has(i)} color={color} onToggle={onToggle} />
-                    ) : (
-                      <span style={{ width: 26, height: 26 }} className="shrink-0" />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Footer summary */}
-      <div className="flex items-center justify-between text-[11px] mt-0.5">
-        <span className="text-muted-foreground">{rows} эгнээ × {cols} PC</span>
-        <span className="font-semibold" style={{ color }}>
-          {selected.size > 0 ? `${selected.size} PC сонгосон` : 'PC дарж сонгоно уу'}
-        </span>
+      <div className="flex flex-wrap gap-1.5">
+        {Array.from({ length: room.seatCount }, (_, i) => (
+          <RoomSeat
+            key={i}
+            index={i}
+            occupied={occupied.has(i)}
+            selected={selected.has(i)}
+            disabled={disabled}
+            color={color}
+            onToggle={onToggle}
+          />
+        ))}
       </div>
     </div>
   )
@@ -311,7 +221,9 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   const [date, setDate] = useState(getTodayStr())
   const [time, setTime] = useState('18:00')
   const [duration, setDuration] = useState(2)
+  const [partySize, setPartySize] = useState(1)
   const [selectedSeats, setSelectedSeats] = useState<Set<number>>(new Set())
+  const [activeRoomId, setActiveRoomId] = useState<number | null>(null)
   const [selectedGame, setSelectedGame] = useState(GAMES[0].id)
 
   const [ageConfirmed, setAgeConfirmed] = useState(false)
@@ -327,54 +239,95 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   const [hoverRating, setHoverRating] = useState(0)
   const [comment, setComment] = useState('')
 
+  const { rooms, loading: roomsLoading } = useRooms(center.id)
   // Real bookings for this center/date, polled so seats other users take
   // flip to occupied without a manual refresh.
-  const { bookings: centerBookings, reload: reloadAvailability } = useCenterAvailability(
-    center.id,
-    date,
-  )
-  const occupiedSeats = useMemo(() => {
-    const occupied1Based = computeOccupiedSeats(centerBookings, time, duration)
-    return new Set(Array.from(occupied1Based, (n) => n - 1))
-  }, [centerBookings, time, duration])
-  const vipSeatSet = useMemo(() => new Set(center.vipSeats.map((n) => n - 1)), [center.vipSeats])
+  const { bookingsForRoom, reload: reloadAvailability } = useCenterAvailability(center.id, date)
+
+  const roomOccupied = useMemo(() => {
+    const map: Record<number, Set<number>> = {}
+    for (const room of rooms) {
+      const occupied1Based = computeOccupiedSeats(bookingsForRoom(room.id), time, duration)
+      map[room.id] = new Set(Array.from(occupied1Based, (n) => n - 1))
+    }
+    return map
+  }, [rooms, bookingsForRoom, time, duration])
+
+  const [activeCategory, setActiveCategory] = useState<Category>('regular')
+  useEffect(() => {
+    if (rooms.length === 0) return
+    if (rooms.some((r) => r.category === activeCategory)) return
+    setActiveCategory(rooms.some((r) => r.category === 'regular') ? 'regular' : 'vip')
+  }, [rooms, activeCategory])
+
+  const hasRegular = rooms.some((r) => r.category === 'regular')
+  const hasVip = rooms.some((r) => r.category === 'vip')
+  const showTabs = hasRegular && hasVip
+  const visibleRooms = rooms.filter((r) => r.category === activeCategory)
+  const activeRoom = rooms.find((r) => r.id === activeRoomId)
+  const maxPartySize = Math.max(1, ...rooms.map((r) => r.seatCount))
+
+  function categoryFreeCount(category: Category) {
+    return rooms
+      .filter((r) => r.category === category)
+      .reduce((sum, r) => sum + (r.seatCount - (roomOccupied[r.id]?.size || 0)), 0)
+  }
+  const categoryTotal = visibleRooms.reduce((sum, r) => sum + r.seatCount, 0)
+  const categoryFree = categoryFreeCount(activeCategory)
 
   // If a selected seat becomes occupied (someone else booked it, or the
   // time/duration changed to overlap an existing booking), drop it.
   useEffect(() => {
+    if (!activeRoomId) return
+    const occ = roomOccupied[activeRoomId]
+    if (!occ) return
     setSelectedSeats((prev) => {
       let changed = false
       const next = new Set(prev)
       for (const i of prev) {
-        if (occupiedSeats.has(i)) {
+        if (occ.has(i)) {
           next.delete(i)
           changed = true
         }
       }
-      return changed ? next : prev
+      if (!changed) return prev
+      if (next.size === 0) setActiveRoomId(null)
+      return next
     })
-  }, [occupiedSeats])
+  }, [roomOccupied, activeRoomId])
+
+  // Shrinking the party size trims any excess selected seats.
+  useEffect(() => {
+    setSelectedSeats((prev) => {
+      if (prev.size <= partySize) return prev
+      const trimmed = new Set(Array.from(prev).sort((a, b) => a - b).slice(0, partySize))
+      if (trimmed.size === 0) setActiveRoomId(null)
+      return trimmed
+    })
+  }, [partySize])
 
   const game = GAMES.find((g) => g.id === selectedGame) || GAMES[0]
   const seats = selectedSeats.size
-  const vipPricePerHour = center.vipPricePerHour || center.pricePerHour
-  const vipSelectedCount = Array.from(selectedSeats).filter((i) => vipSeatSet.has(i)).length
-  const regularSelectedCount = seats - vipSelectedCount
-  const totalPrice =
-    regularSelectedCount * center.pricePerHour * duration + vipSelectedCount * vipPricePerHour * duration
+  const totalPrice = activeRoom ? seats * activeRoom.pricePerHour * duration : 0
 
   // Long (8h+) and late-night (22:00+) bookings need E-Mongolia-verified
   // age; a self-declared checkbox is enough for everything else.
   const needsEMongolia = duration >= EM_LONG_BOOKING_HOURS || timeToHour(time) >= EM_NIGHT_HOUR
   const ageOk = needsEMongolia ? emAge !== null : ageConfirmed
 
-  function toggleSeat(i: number) {
-    setSelectedSeats((prev) => {
-      const next = new Set(prev)
-      if (next.has(i)) next.delete(i)
-      else next.add(i)
-      return next
-    })
+  function toggleSeat(room: RoomDto, seatIndex: number) {
+    if (activeRoomId !== null && activeRoomId !== room.id) return
+    const occ = roomOccupied[room.id]
+    if (occ?.has(seatIndex)) return
+    const next = new Set(selectedSeats)
+    if (next.has(seatIndex)) {
+      next.delete(seatIndex)
+    } else {
+      if (next.size >= partySize) return
+      next.add(seatIndex)
+    }
+    setSelectedSeats(next)
+    setActiveRoomId(next.size === 0 ? null : room.id)
   }
 
   async function handleEMongoliaVerify() {
@@ -405,6 +358,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   }
 
   async function handleConfirm() {
+    if (!activeRoom) return
     setConfirming(true)
     setConfirmError('')
     try {
@@ -415,6 +369,8 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
           userEmail: user?.email,
           centerId: center.id,
           centerName: center.name,
+          roomId: activeRoom.id,
+          roomName: activeRoom.name,
           date,
           time,
           duration,
@@ -452,8 +408,6 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
     onComplete(center, { rating, comment })
   }
 
-  const availableCount = center.pcCount - occupiedSeats.size
-
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm">
       <div
@@ -480,11 +434,11 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               className="font-black text-foreground text-lg"
               style={{ fontFamily: 'var(--font-heading)', color: center.color }}
             >
-              {step === 'success' ? 'ЗАХИАЛГА АМЖИЛТТАЙ' : step === 'review' ? 'ҮНЭЛГЭЭ ӨГ' : 'ЗАХИАЛГА ӨГӨХ'}
+              {step === 'success' ? 'ЗАХИАЛГА АМЖИЛТТАЙ' : step === 'review' ? 'ҮНЭЛГЭЭ ӨГ' : 'СУУДАЛ СОНГОХ'}
             </h2>
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-xs text-muted-foreground">{center.name}</p>
-              {step === 'details' && (
+              {step === 'details' && rooms.length > 0 && (
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.5 rounded"
                   style={{
@@ -494,7 +448,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                     fontFamily: 'var(--font-heading)',
                   }}
                 >
-                  {center.pcCount} PC · {availableCount} сул
+                  {categoryTotal} PC · {categoryFree} сул
                 </span>
               )}
             </div>
@@ -525,8 +479,8 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               </div>
             </div>
 
-            {/* Date / Time / Duration */}
-            <div className="grid grid-cols-3 gap-3">
+            {/* Date / Duration / Time / Party size */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs text-muted-foreground uppercase tracking-widest">Огноо</label>
                 <input
@@ -534,6 +488,15 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                   value={date}
                   min={getTodayStr()}
                   onChange={(e) => setDate(e.target.value)}
+                  className="bg-input border border-border rounded-lg px-2 py-2 text-xs text-foreground focus:outline-none focus:border-neon-cyan transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground uppercase tracking-widest">Хугацаа</label>
+                <SelectField
+                  value={String(duration)}
+                  onChange={(v) => setDuration(Number(v))}
+                  options={DURATIONS.map((d) => ({ value: String(d), label: `${d} цаг` }))}
                   className="bg-input border border-border rounded-lg px-2 py-2 text-xs text-foreground focus:outline-none focus:border-neon-cyan transition-colors"
                 />
               </div>
@@ -547,41 +510,71 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-muted-foreground uppercase tracking-widest">Хугацаа</label>
+                <label className="text-xs text-muted-foreground uppercase tracking-widest">Хүний тоо</label>
                 <SelectField
-                  value={String(duration)}
-                  onChange={(v) => setDuration(Number(v))}
-                  options={DURATIONS.map((d) => ({ value: String(d), label: `${d} цаг` }))}
+                  value={String(partySize)}
+                  onChange={(v) => setPartySize(Number(v))}
+                  options={Array.from({ length: maxPartySize }, (_, i) => ({ value: String(i + 1), label: `${i + 1} хүн` }))}
                   className="bg-input border border-border rounded-lg px-2 py-2 text-xs text-foreground focus:outline-none focus:border-neon-cyan transition-colors"
                 />
               </div>
             </div>
 
-            {/* Interactive seat map */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-widest">
-                PC сонгох
-                <span className="ml-2 normal-case" style={{ color: center.color }}>
-                  ({center.pcCount} нийт)
-                </span>
-              </label>
-              <div
-                className="rounded-xl p-4"
-                style={{
-                  background: 'rgba(11,11,15,0.8)',
-                  border: `1px solid ${center.color}20`,
-                }}
-              >
-                <SeatMap
-                  total={center.pcCount}
-                  selected={selectedSeats}
-                  occupied={occupiedSeats}
-                  vipSeats={vipSeatSet}
-                  onToggle={toggleSeat}
-                  color={center.color}
-                />
+            {/* Category tabs + room cards */}
+            {roomsLoading ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">Уншиж байна...</div>
+            ) : rooms.length === 0 ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">Одоогоор суудал бүртгэгдээгүй байна.</div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {showTabs && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setActiveCategory('regular')}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150"
+                      style={
+                        activeCategory === 'regular'
+                          ? { background: `${center.color}20`, border: `1px solid ${center.color}`, color: center.color }
+                          : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', color: '#9a9aae' }
+                      }
+                    >
+                      <span className="text-xs font-black" style={{ fontFamily: 'var(--font-heading)' }}>Заал</span>
+                      <span className="text-[10px]">{categoryFreeCount('regular')} сул</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveCategory('vip')}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150"
+                      style={
+                        activeCategory === 'vip'
+                          ? { background: `${VIP_GOLD}20`, border: `1px solid ${VIP_GOLD}`, color: VIP_GOLD }
+                          : { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', color: '#9a9aae' }
+                      }
+                    >
+                      <span className="text-xs font-black" style={{ fontFamily: 'var(--font-heading)' }}>VIP</span>
+                      <span className="text-[10px]">{categoryFreeCount('vip')} сул</span>
+                    </button>
+                  </div>
+                )}
+
+                {activeRoomId !== null && !visibleRooms.some((r) => r.id === activeRoomId) && (
+                  <p className="text-[11px] text-muted-foreground -mb-1">
+                    Та «{activeRoom?.name}» өрөөнөөс сонгосон байна — өөр өрөө сонгохын тулд эхлээд сонголтоо цуцлана уу.
+                  </p>
+                )}
+
+                {visibleRooms.map((room) => (
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    occupied={roomOccupied[room.id] || new Set()}
+                    selected={activeRoomId === room.id ? selectedSeats : new Set()}
+                    disabled={activeRoomId !== null && activeRoomId !== room.id}
+                    color={room.category === 'vip' ? VIP_GOLD : center.color}
+                    onToggle={(i) => toggleSeat(room, i)}
+                  />
+                ))}
               </div>
-            </div>
+            )}
 
             {/* Game selection */}
             <div className="flex flex-col gap-1.5">
@@ -612,16 +605,10 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
             >
               <div className="flex flex-col gap-0.5">
                 <span className="text-sm text-muted-foreground">Нийт дүн</span>
-                {regularSelectedCount > 0 && (
+                {activeRoom && seats > 0 && (
                   <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                    {regularSelectedCount} PC × {duration}ц ×{' '}
-                    <EcoinAmount amount={center.pricePerHour} color={center.color} size="sm" />
-                  </span>
-                )}
-                {vipSelectedCount > 0 && (
-                  <span className="text-xs inline-flex items-center gap-1" style={{ color: VIP_GOLD }}>
-                    ★ {vipSelectedCount} VIP PC × {duration}ц ×{' '}
-                    <EcoinAmount amount={vipPricePerHour} color={VIP_GOLD} size="sm" />
+                    {seats} PC × {duration}ц ×{' '}
+                    <EcoinAmount amount={activeRoom.pricePerHour} color={center.color} size="sm" />
                   </span>
                 )}
               </div>
@@ -650,9 +637,9 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                     </span>
                     <span className="text-xs text-foreground">
                       <span className="font-bold" style={{ color: EM_BLUE, fontFamily: 'var(--font-heading)' }}>
-                        E-MONGOLIA
+                        Регистрийн дугаараар
                       </span>{' '}
-                      — нас баталгаажсан ({emAge} настай)
+                      нас баталгаажсан ({emAge} настай)
                     </span>
                   </div>
                 ) : (
@@ -660,14 +647,14 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       <span className="font-bold" style={{ color: '#ff45c8' }}>{EM_LONG_BOOKING_HOURS}+ цагийн</span> болон{' '}
                       <span className="font-bold" style={{ color: '#ff45c8' }}>{EM_NIGHT_HOUR}:00-оос хойших</span> захиалгад
-                      E-Mongolia-гаар насаа баталгаажуулах шаардлагатай.
+                      регистрийн дугаараа оруулж насаа баталгаажуулах шаардлагатай.
                     </p>
                     <button
                       onClick={() => setEmOpen(true)}
                       className="py-2 rounded-lg text-xs font-black tracking-widest text-white transition-all duration-200"
                       style={{ background: EM_BLUE, boxShadow: `0 0 14px ${EM_BLUE}50`, fontFamily: 'var(--font-heading)' }}
                     >
-                      E-MONGOLIA-ГААР БАТАЛГААЖУУЛАХ
+                      РЕГИСТРИЙН ДУГААРААР БАТАЛГААЖУУЛАХ
                     </button>
                   </>
                 )}
@@ -717,21 +704,23 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
 
             <button
               onClick={handleBook}
-              disabled={seats === 0 || !ageOk}
+              disabled={seats === 0 || seats !== partySize || !ageOk}
               className="py-3 rounded-xl font-black text-background tracking-widest transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               style={{
                 background: center.color,
-                boxShadow: (seats === 0 || !ageOk) ? 'none' : `0 0 20px ${center.color}50`,
+                boxShadow: (seats === 0 || seats !== partySize || !ageOk) ? 'none' : `0 0 20px ${center.color}50`,
                 fontFamily: 'var(--font-heading)',
               }}
             >
               {seats === 0
                 ? 'PC СОНГОНО УУ'
-                : !ageOk
-                  ? needsEMongolia
-                    ? 'НАС БАТАЛГААЖУУЛНА УУ'
-                    : '18+ БАТАЛГААЖУУЛНА УУ'
-                  : `${seats} PC ЗАХИАЛАХ`}
+                : seats !== partySize
+                  ? `${seats}/${partySize} PC СОНГОСОН`
+                  : !ageOk
+                    ? needsEMongolia
+                      ? 'НАС БАТАЛГААЖУУЛНА УУ'
+                      : '18+ БАТАЛГААЖУУЛНА УУ'
+                    : `${seats} PC ЗАХИАЛАХ`}
             </button>
           </div>
         )}
@@ -743,10 +732,11 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
             <div className="rounded-xl overflow-hidden border border-border">
               {(
                 [
-                  ['Заал', center.name],
+                  ['Төв', center.name],
+                  ['Өрөө', activeRoom?.name || '—'],
                   ['Огноо', date],
                   ['Цаг', `${time} (${duration} цаг)`],
-                  ['PC дугаар', Array.from(selectedSeats).sort((a,b) => a-b).map(i => `#${i+1}${vipSeatSet.has(i) ? '★' : ''}`).join(', ')],
+                  ['PC дугаар', Array.from(selectedSeats).sort((a,b) => a-b).map(i => `#${i+1}`).join(', ')],
                   ['PC тоо', `${seats} ширхэг`],
                   ['Тоглоом', game.name],
                   ['Үнэ', <EcoinAmount key="ecoin" amount={totalPrice} color={center.color} size="sm" />],
@@ -823,9 +813,9 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                 ЗАХИАЛГА АМЖИЛТТАЙ!
               </h3>
               <p className="text-muted-foreground text-sm">
-                {center.name} — {date}, {time} цагт{' '}
+                {center.name} · {activeRoom?.name} — {date}, {time} цагт{' '}
                 <span className="text-foreground font-semibold">
-                  PC {Array.from(selectedSeats).sort((a,b)=>a-b).map(i=>`#${i+1}${vipSeatSet.has(i) ? '★' : ''}`).join(', ')}
+                  PC {Array.from(selectedSeats).sort((a,b)=>a-b).map(i=>`#${i+1}`).join(', ')}
                 </span> захиалсан.
               </p>
             </div>
@@ -909,21 +899,26 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
               <div className="p-5 flex flex-col gap-4">
                 <div className="flex items-center gap-2.5">
                   <span
-                    className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-white text-sm shrink-0"
-                    style={{ background: EM_BLUE, fontFamily: 'var(--font-heading)' }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: EM_BLUE }}
                   >
-                    e
+                    <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.3">
+                      <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+                      <circle cx="5.5" cy="7" r="1.3" />
+                      <path d="M3.5 11c0-1.4 1-2 2-2s2 .6 2 2" strokeLinecap="round" />
+                      <path d="M9.5 6.5h3M9.5 8.5h3M9.5 10.5h2" strokeLinecap="round" />
+                    </svg>
                   </span>
                   <div>
                     <p className="text-sm font-black" style={{ color: EM_BLUE, fontFamily: 'var(--font-heading)' }}>
-                      E-MONGOLIA
+                      НАС БАТАЛГААЖУУЛАЛТ
                     </p>
-                    <p className="text-[11px] text-muted-foreground">Нас баталгаажуулалт</p>
+                    <p className="text-[11px] text-muted-foreground">Регистрийн дугаараар</p>
                   </div>
                 </div>
 
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Регистрийн дугаараа оруулснаар таны нас E-Mongolia-гаас баталгаажина.
+                  Регистрийн дугаараа оруулснаар таны нас баталгаажина.
                 </p>
 
                 <div className="flex flex-col gap-1.5">
@@ -966,7 +961,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                 </div>
 
                 <p className="text-[10px] text-muted-foreground text-center opacity-70">
-                  Демо горим — жинхэнэ E-Mongolia холболт хийгдээгүй.
+                  Демо горим — жинхэнэ бүртгэлийн сантай холбогдоогүй.
                 </p>
               </div>
             </div>
