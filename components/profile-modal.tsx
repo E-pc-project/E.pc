@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from './auth-context'
+import { announceWalletBalance } from '@/lib/use-wallet'
 
 interface Booking {
   id: number
@@ -13,7 +14,25 @@ interface Booking {
   seats: string
   game: string
   totalPrice: number
+  status: string
+  cancelledAt: string | null
+  refundAmount: number | null
   createdAt: string
+}
+
+// Mirrors the refund tiers enforced server-side in app/api/bookings/route.ts
+// PATCH — used here only to preview the refund amount before confirming.
+const FULL_REFUND_HOURS = 1
+const LATE_CANCEL_REFUND_RATE = 0.8
+
+function refundPreview(b: Booking): { cancellable: boolean; percent: number; amount: number } {
+  const startsAt = new Date(`${b.date}T${b.time}:00`)
+  const hoursUntilStart = (startsAt.getTime() - Date.now()) / 3600000
+  if (hoursUntilStart < 0) return { cancellable: false, percent: 0, amount: 0 }
+  const fullRefund = hoursUntilStart >= FULL_REFUND_HOURS
+  const percent = fullRefund ? 100 : 80
+  const amount = fullRefund ? b.totalPrice : Math.round(b.totalPrice * LATE_CANCEL_REFUND_RATE)
+  return { cancellable: true, percent, amount }
 }
 
 interface MyCenter {
@@ -62,6 +81,9 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
   const [centers, setCenters] = useState<MyCenter[]>([])
   const [loading, setLoading] = useState(true)
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [cancelLoading, setCancelLoading] = useState(false)
+  const [cancelError, setCancelError] = useState('')
 
   const load = useCallback(async () => {
     if (!user?.email) return
@@ -88,6 +110,32 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
       window.removeEventListener('epc:centers-updated', h)
     }
   }, [load])
+
+  async function handleCancelBooking(id: number) {
+    if (!user?.email) return
+    setCancelLoading(true)
+    setCancelError('')
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, userEmail: user.email }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setCancelError(data.error || 'Цуцлахад алдаа гарлаа.')
+        setCancelLoading(false)
+        return
+      }
+      announceWalletBalance(data.balance)
+      window.dispatchEvent(new Event('epc:bookings-updated'))
+      setCancellingId(null)
+      load()
+    } catch {
+      setCancelError('Сервертэй холбогдож чадсангүй.')
+    }
+    setCancelLoading(false)
+  }
 
   async function handleDelete(id: number) {
     if (!user?.email) return
@@ -185,26 +233,76 @@ export function ProfileModal({ onClose, onAddCenter, onEditCenter }: ProfileModa
               <EmptyState text="Одоогоор захиалга алга" hint="Заал захиалахад энд харагдана." />
             ) : (
               <div className="flex flex-col gap-2.5">
-                {bookings.map((b) => (
-                  <div
-                    key={b.id}
-                    className="rounded-xl px-4 py-3 flex items-center justify-between gap-3"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate" style={{ fontFamily: 'var(--font-heading)' }}>
-                        {b.centerName}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {b.date} · {b.time} · {b.duration}ц {b.roomName && `· ${b.roomName}`} {b.seats && `· PC ${b.seats}`}
-                      </p>
-                      {b.game && <p className="text-[11px] text-muted-foreground mt-0.5">🎮 {b.game}</p>}
+                {bookings.map((b) => {
+                  const cancelled = b.status === 'cancelled'
+                  const preview = refundPreview(b)
+                  return (
+                    <div
+                      key={b.id}
+                      className="rounded-xl px-4 py-3 flex flex-col gap-2"
+                      style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${cancelled ? 'rgba(255,69,200,0.25)' : 'rgba(255,255,255,0.08)'}`,
+                        opacity: cancelled ? 0.7 : 1,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate" style={{ fontFamily: 'var(--font-heading)' }}>
+                            {b.centerName}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {b.date} · {b.time} · {b.duration}ц {b.roomName && `· ${b.roomName}`} {b.seats && `· PC ${b.seats}`}
+                          </p>
+                          {b.game && <p className="text-[11px] text-muted-foreground mt-0.5">🎮 {b.game}</p>}
+                        </div>
+                        <span className="text-sm font-black shrink-0" style={{ color: ACCENT, fontFamily: 'var(--font-heading)' }}>
+                          ₮{b.totalPrice.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {cancelled ? (
+                        <p className="text-[11px]" style={{ color: '#ff45c8' }}>
+                          Цуцлагдсан — {(b.refundAmount ?? 0).toLocaleString()} ecoin буцаагдсан
+                        </p>
+                      ) : preview.cancellable ? (
+                        cancellingId === b.id ? (
+                          <div className="flex flex-col gap-2 rounded-lg p-2.5" style={{ background: 'rgba(255,69,200,0.06)', border: '1px solid rgba(255,69,200,0.2)' }}>
+                            <p className="text-[11px] text-muted-foreground">
+                              Цуцлавал <span className="font-bold" style={{ color: '#ff45c8' }}>{preview.percent}%</span> ({preview.amount.toLocaleString()} ecoin) буцаана. Цуцлах уу?
+                            </p>
+                            {cancelError && <p className="text-[11px] text-red-400">{cancelError}</p>}
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleCancelBooking(b.id)}
+                                disabled={cancelLoading}
+                                className="px-3 py-1.5 rounded-md text-[11px] font-bold text-background disabled:opacity-40"
+                                style={{ background: '#ff45c8' }}
+                              >
+                                {cancelLoading ? 'ЦУЦЛАЖ БАЙНА...' : 'ТИЙМ, ЦУЦЛАХ'}
+                              </button>
+                              <button
+                                onClick={() => { setCancellingId(null); setCancelError('') }}
+                                disabled={cancelLoading}
+                                className="px-3 py-1.5 rounded-md text-[11px] border border-border text-muted-foreground disabled:opacity-40"
+                              >
+                                Болих
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setCancellingId(b.id)}
+                            className="self-start px-3 py-1 rounded-md text-[11px] font-bold border transition-colors hover:border-neon-magenta"
+                            style={{ borderColor: 'rgba(255,69,200,0.35)', color: '#ff45c8' }}
+                          >
+                            Захиалга цуцлах
+                          </button>
+                        )
+                      ) : null}
                     </div>
-                    <span className="text-sm font-black shrink-0" style={{ color: ACCENT, fontFamily: 'var(--font-heading)' }}>
-                      ₮{b.totalPrice.toLocaleString()}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )
           ) : centers.length === 0 ? (

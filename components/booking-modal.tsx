@@ -125,21 +125,23 @@ function RoomSeat({
       disabled={!clickable}
       onClick={() => onToggle(index)}
       title={occupied ? `PC ${index + 1} — Захиалагдсан` : `PC ${index + 1}`}
-      className="relative w-9 h-9 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold transition-all duration-150"
+      className="relative w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150"
       style={style}
     >
       {occupied ? (
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3">
-          <rect x="3" y="5.5" width="6" height="4.5" rx="1" />
-          <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="4" y="7" width="8" height="6" rx="1.3" />
+          <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
         </svg>
       ) : (
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3">
-          <rect x="1.5" y="2" width="9" height="6" rx="0.8" />
-          <path d="M4.5 10.5h3M6 8v2.5" strokeLinecap="round" />
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2" />
+          <text x="8" y="9.1" textAnchor="middle" fontSize="5.5" fontWeight="800" fill="currentColor" stroke="none" fontFamily="var(--font-heading)">
+            {index + 1}
+          </text>
+          <path d="M5.5 13.5h5M8 11v2.5" strokeLinecap="round" />
         </svg>
       )}
-      <span>{index + 1}</span>
       {selected && (
         <span
           className="pointer-events-none absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
@@ -194,7 +196,7 @@ function RoomCard({
           <span className="text-[10px] text-muted-foreground">{free} сул</span>
         )}
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-5 gap-1">
         {Array.from({ length: room.seatCount }, (_, i) => (
           <RoomSeat
             key={i}
@@ -238,6 +240,9 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   const [rating, setRating] = useState(0)
   const [hoverRating, setHoverRating] = useState(0)
   const [comment, setComment] = useState('')
+  const [lastBookingId, setLastBookingId] = useState<number | null>(null)
+  const [reviewSubmitting, setReviewSubmitting] = useState(false)
+  const [reviewError, setReviewError] = useState('')
 
   const { rooms, loading: roomsLoading } = useRooms(center.id)
   // Real bookings for this center/date, polled so seats other users take
@@ -276,8 +281,13 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
   const categoryFree = categoryFreeCount(activeCategory)
 
   // If a selected seat becomes occupied (someone else booked it, or the
-  // time/duration changed to overlap an existing booking), drop it.
+  // time/duration changed to overlap an existing booking), drop it. Only
+  // while still picking seats — once past 'details' the seat we just
+  // booked ourselves will also show as occupied (live availability
+  // reloads on `epc:bookings-updated`), and this must not wipe the
+  // confirm/success screen's summary of what was just booked.
   useEffect(() => {
+    if (step !== 'details') return
     if (!activeRoomId) return
     const occ = roomOccupied[activeRoomId]
     if (!occ) return
@@ -397,6 +407,7 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
       // Push the server-confirmed post-deduction balance directly — avoids a
       // race where an immediate re-fetch could observe a not-yet-settled value.
       announceWalletBalance(data.balance)
+      setLastBookingId(data.id ?? null)
       setStep('success')
     } catch {
       setConfirmError('Сервертэй холбогдож чадсангүй.')
@@ -404,8 +415,35 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
     setConfirming(false)
   }
 
-  function handleSubmitReview() {
-    onComplete(center, { rating, comment })
+  async function handleSubmitReview() {
+    setReviewSubmitting(true)
+    setReviewError('')
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          centerId: center.id,
+          userEmail: user?.email,
+          userName: user?.name,
+          bookingId: lastBookingId,
+          rating,
+          comment,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setReviewError(data.error || 'Үнэлгээ илгээхэд алдаа гарлаа.')
+        setReviewSubmitting(false)
+        return
+      }
+      // Refresh center lists so the new rating shows up immediately.
+      window.dispatchEvent(new Event('epc:centers-updated'))
+      onComplete(center, { rating, comment })
+    } catch {
+      setReviewError('Сервертэй холбогдож чадсангүй.')
+    }
+    setReviewSubmitting(false)
   }
 
   return (
@@ -865,17 +903,22 @@ export function BookingModal({ center, onClose, onComplete }: BookingModalProps)
                 className="bg-input border border-border rounded-lg px-4 py-3 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors resize-none leading-relaxed"
               />
             </div>
+            {reviewError && (
+              <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                {reviewError}
+              </p>
+            )}
             <div className="flex gap-3">
               <button onClick={onClose} className="flex-1 py-3 rounded-xl font-bold border border-border text-muted-foreground hover:text-foreground transition-colors">
                 Алгасах
               </button>
               <button
                 onClick={handleSubmitReview}
-                disabled={rating === 0}
+                disabled={rating === 0 || reviewSubmitting}
                 className="flex-1 py-3 rounded-xl font-black text-background transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: center.color, fontFamily: 'var(--font-heading)' }}
               >
-                ИЛГЭЭХ
+                {reviewSubmitting ? 'ИЛГЭЭЖ БАЙНА...' : 'ИЛГЭЭХ'}
               </button>
             </div>
           </div>

@@ -40,11 +40,13 @@ export interface CenterRow {
   created_at: string
 }
 
-// listCenters()/listCentersByOwner() join against rooms to compute these.
+// listCenters()/listCentersByOwner() join against rooms/reviews to compute these.
 export interface CenterWithAggregatesRow extends CenterRow {
   total_seats: number
   price_from: number | null
   has_vip: number
+  avg_rating: number
+  review_count: number
 }
 
 export interface RoomRow {
@@ -54,6 +56,17 @@ export interface RoomRow {
   category: string
   seat_count: number
   price_per_hour: number
+  created_at: string
+}
+
+export interface ReviewRow {
+  id: number
+  center_id: number
+  user_email: string
+  user_name: string
+  booking_id: number | null
+  rating: number
+  comment: string
   created_at: string
 }
 
@@ -70,6 +83,9 @@ export interface BookingRow {
   seats: string
   game: string
   total_price: number
+  status: string
+  cancelled_at: string | null
+  refund_amount: number | null
   created_at: string
 }
 
@@ -195,6 +211,9 @@ async function db(): Promise<Client> {
       for (const sql of [
         'ALTER TABLE bookings ADD COLUMN room_id INTEGER NOT NULL DEFAULT 0',
         "ALTER TABLE bookings ADD COLUMN room_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE bookings ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'",
+        'ALTER TABLE bookings ADD COLUMN cancelled_at TEXT',
+        'ALTER TABLE bookings ADD COLUMN refund_amount INTEGER',
       ]) {
         try {
           await client.execute(sql)
@@ -258,6 +277,17 @@ async function db(): Promise<Client> {
           })
         }
       }
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS reviews (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          center_id   INTEGER NOT NULL,
+          user_email  TEXT NOT NULL,
+          user_name   TEXT NOT NULL DEFAULT '',
+          booking_id  INTEGER,
+          rating      INTEGER NOT NULL,
+          comment     TEXT NOT NULL DEFAULT '',
+          created_at  TEXT NOT NULL
+        )`)
     })()
   }
   await g.__epcSchema
@@ -332,6 +362,7 @@ export async function deleteUserAccount(email: string): Promise<boolean> {
   await client.execute({ sql: 'DELETE FROM centers WHERE owner_email = ?', args: [e] })
   await client.execute({ sql: 'DELETE FROM bookings WHERE user_email = ?', args: [e] })
   await client.execute({ sql: 'DELETE FROM notifications WHERE admin_email = ?', args: [e] })
+  await client.execute({ sql: 'DELETE FROM reviews WHERE user_email = ?', args: [e] })
   const rs = await client.execute({ sql: 'DELETE FROM users WHERE email = ?', args: [e] })
   return rs.rowsAffected > 0
 }
@@ -390,24 +421,42 @@ export async function insertCenter(input: {
   return center
 }
 
+// Rooms and reviews are each pre-aggregated in their own subquery before
+// joining to centers — joining both tables directly would fan out (a
+// center with 2 rooms and 3 reviews would produce 6 rows), corrupting
+// both the seat totals and the rating average.
 const CENTER_AGGREGATES_SQL = `
   SELECT c.*,
-    COALESCE(SUM(r.seat_count), 0) as total_seats,
-    MIN(r.price_per_hour) as price_from,
-    MAX(CASE WHEN r.category = 'vip' THEN 1 ELSE 0 END) as has_vip
+    COALESCE(rooms_agg.total_seats, 0) as total_seats,
+    rooms_agg.price_from as price_from,
+    COALESCE(rooms_agg.has_vip, 0) as has_vip,
+    COALESCE(reviews_agg.avg_rating, 0) as avg_rating,
+    COALESCE(reviews_agg.review_count, 0) as review_count
   FROM centers c
-  LEFT JOIN rooms r ON r.center_id = c.id`
+  LEFT JOIN (
+    SELECT center_id,
+      SUM(seat_count) as total_seats,
+      MIN(price_per_hour) as price_from,
+      MAX(CASE WHEN category = 'vip' THEN 1 ELSE 0 END) as has_vip
+    FROM rooms
+    GROUP BY center_id
+  ) rooms_agg ON rooms_agg.center_id = c.id
+  LEFT JOIN (
+    SELECT center_id, AVG(rating) as avg_rating, COUNT(*) as review_count
+    FROM reviews
+    GROUP BY center_id
+  ) reviews_agg ON reviews_agg.center_id = c.id`
 
 export async function listCenters(): Promise<CenterWithAggregatesRow[]> {
   const client = await db()
-  const rs = await client.execute(`${CENTER_AGGREGATES_SQL} GROUP BY c.id ORDER BY c.created_at DESC`)
+  const rs = await client.execute(`${CENTER_AGGREGATES_SQL} ORDER BY c.created_at DESC`)
   return rs.rows as unknown as CenterWithAggregatesRow[]
 }
 
 export async function listCentersByOwner(email: string): Promise<CenterWithAggregatesRow[]> {
   const client = await db()
   const rs = await client.execute({
-    sql: `${CENTER_AGGREGATES_SQL} WHERE c.owner_email = ? GROUP BY c.id ORDER BY c.created_at DESC`,
+    sql: `${CENTER_AGGREGATES_SQL} WHERE c.owner_email = ? ORDER BY c.created_at DESC`,
     args: [email.toLowerCase()],
   })
   return rs.rows as unknown as CenterWithAggregatesRow[]
@@ -565,6 +614,33 @@ export async function deleteRoom(id: number): Promise<boolean> {
   return rs.rowsAffected > 0
 }
 
+/* ---------------------------- Reviews ------------------------------ */
+
+export async function insertReview(input: {
+  centerId: number
+  userEmail: string
+  userName: string
+  bookingId?: number
+  rating: number
+  comment?: string
+}): Promise<ReviewRow> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `INSERT INTO reviews (center_id, user_email, user_name, booking_id, rating, comment, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.centerId,
+      input.userEmail.toLowerCase(),
+      input.userName,
+      input.bookingId ?? null,
+      input.rating,
+      input.comment ?? '',
+      new Date().toISOString(),
+    ],
+  })
+  return rs.rows[0] as unknown as ReviewRow
+}
+
 /* ---------------------------- Bookings --------------------------- */
 
 export async function insertBooking(input: {
@@ -612,17 +688,37 @@ export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
   return rs.rows as unknown as BookingRow[]
 }
 
+export async function getBookingById(id: number): Promise<BookingRow | undefined> {
+  const client = await db()
+  const rs = await client.execute({ sql: 'SELECT * FROM bookings WHERE id = ?', args: [id] })
+  return rs.rows[0] as unknown as BookingRow | undefined
+}
+
+// Marks a booking cancelled and records how much was refunded. Cancelled
+// bookings are excluded from the availability queries below so the seat
+// becomes bookable again.
+export async function cancelBooking(id: number, refundAmount: number): Promise<boolean> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `UPDATE bookings SET status = 'cancelled', cancelled_at = ?, refund_amount = ?
+          WHERE id = ? AND status != 'cancelled'`,
+    args: [new Date().toISOString(), refundAmount, id],
+  })
+  return rs.rowsAffected > 0
+}
+
 // All bookings for a given center on a given day, across every one of its
 // rooms — one query covers every room card the booking modal shows
 // (client_id here matches the "db-<id>" ids used everywhere centers are
-// referenced on the client, so no id-stripping is needed).
+// referenced on the client, so no id-stripping is needed). Cancelled
+// bookings are excluded so their seats show as free again.
 export async function listBookingsByCenterAndDate(
   centerId: string,
   date: string,
 ): Promise<BookingRow[]> {
   const client = await db()
   const rs = await client.execute({
-    sql: 'SELECT * FROM bookings WHERE center_id = ? AND date = ?',
+    sql: "SELECT * FROM bookings WHERE center_id = ? AND date = ? AND status != 'cancelled'",
     args: [centerId, date],
   })
   return rs.rows as unknown as BookingRow[]
@@ -636,7 +732,7 @@ export async function listBookingsByRoomAndDate(
 ): Promise<BookingRow[]> {
   const client = await db()
   const rs = await client.execute({
-    sql: 'SELECT * FROM bookings WHERE room_id = ? AND date = ?',
+    sql: "SELECT * FROM bookings WHERE room_id = ? AND date = ? AND status != 'cancelled'",
     args: [roomId, date],
   })
   return rs.rows as unknown as BookingRow[]

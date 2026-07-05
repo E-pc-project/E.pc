@@ -1,5 +1,8 @@
 import {
+  addUserBalance,
+  cancelBooking,
   deductUserBalance,
+  getBookingById,
   getCenterById,
   getUserBalance,
   getUserByEmail,
@@ -11,6 +14,13 @@ import {
 import { computeOccupiedSeats } from '@/lib/availability'
 
 export const dynamic = 'force-dynamic'
+
+// Cancelling 1+ hours before the booking starts refunds the full amount;
+// cancelling inside that hour still refunds most of it (80%) rather than
+// nothing, since the seat is usually still freed up in time for someone
+// else. Cancelling after the booking has already started isn't allowed.
+const FULL_REFUND_HOURS = 1
+const LATE_CANCEL_REFUND_RATE = 0.8
 
 // Live seat availability for a center on a given day, grouped by room —
 // one request covers every room card the booking modal shows. Deliberately
@@ -127,6 +137,76 @@ export async function POST(req: Request) {
     return Response.json({ id: booking.id, balance }, { status: 201 })
   } catch (err) {
     console.error('[bookings POST]', err)
+    return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
+  }
+}
+
+// Cancels a booking and refunds the wallet according to how far out the
+// booking's start time is (see FULL_REFUND_HOURS/LATE_CANCEL_REFUND_RATE
+// above). Recomputed server-side — never trust a client-supplied refund.
+export async function PATCH(req: Request) {
+  try {
+    const { id, userEmail } = await req.json()
+    const bookingId = Number(id)
+    if (!bookingId || !userEmail) {
+      return Response.json({ error: 'id ба userEmail шаардлагатай.' }, { status: 400 })
+    }
+
+    const booking = await getBookingById(bookingId)
+    if (!booking || booking.user_email !== String(userEmail).toLowerCase()) {
+      return Response.json({ error: 'Захиалга олдсонгүй.' }, { status: 404 })
+    }
+    if (booking.status === 'cancelled') {
+      return Response.json({ error: 'Захиалга аль хэдийн цуцлагдсан байна.' }, { status: 400 })
+    }
+
+    const startsAt = new Date(`${booking.date}T${booking.time}:00`)
+    const hoursUntilStart = (startsAt.getTime() - Date.now()) / 3600000
+    if (hoursUntilStart < 0) {
+      return Response.json(
+        { error: 'Захиалгын цаг эхэлсэн тул цуцлах боломжгүй.' },
+        { status: 400 },
+      )
+    }
+    const fullRefund = hoursUntilStart >= FULL_REFUND_HOURS
+    const refundAmount = fullRefund
+      ? booking.total_price
+      : Math.round(booking.total_price * LATE_CANCEL_REFUND_RATE)
+
+    if (refundAmount > 0) {
+      await addUserBalance(booking.user_email, refundAmount)
+    }
+    await cancelBooking(bookingId, refundAmount)
+
+    // Notify the center's admin. Never fail the cancellation if this breaks.
+    try {
+      const numId = Number(booking.center_id.replace(/^db-/, ''))
+      const center = numId ? await getCenterById(numId) : undefined
+      if (center) {
+        const bookingUser = await getUserByEmail(booking.user_email)
+        const who = bookingUser?.name || booking.user_email
+        await insertNotification({
+          adminEmail: center.owner_email,
+          type: 'cancellation',
+          title: `Захиалга цуцлагдлаа — ${center.name}`,
+          body: `${who} ${booking.date} ${booking.time} цагт ${booking.room_name ? `«${booking.room_name}» өрөөнд ` : ''}хийсэн PC ${booking.seats} захиалгаа цуцаллаа (${fullRefund ? '100' : '80'}% буцаалт: ${refundAmount.toLocaleString()} ecoin).`,
+          centerId: booking.center_id,
+          bookingId: booking.id,
+        })
+      }
+    } catch (notifyErr) {
+      console.error('[bookings PATCH] мэдэгдэл үүсгэхэд алдаа:', notifyErr)
+    }
+
+    const balance = await getUserBalance(booking.user_email)
+    return Response.json({
+      ok: true,
+      refundAmount,
+      refundPercent: fullRefund ? 100 : 80,
+      balance,
+    })
+  } catch (err) {
+    console.error('[bookings PATCH]', err)
     return Response.json({ error: 'Серверийн алдаа гарлаа.' }, { status: 500 })
   }
 }

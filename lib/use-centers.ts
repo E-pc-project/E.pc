@@ -53,6 +53,8 @@ export interface DbCenter {
   openTime: string
   closeTime: string
   photo: string
+  rating: number
+  reviewCount: number
 }
 
 /**
@@ -85,8 +87,8 @@ export function useCenters() {
           totalSeats: c.totalSeats || 0,
           priceFrom: c.priceFrom || 0,
           hasVip: Boolean(c.hasVip),
-          rating: 0,
-          reviewCount: 0,
+          rating: c.rating || 0,
+          reviewCount: c.reviewCount || 0,
           openHours: formatOpenHours(c.openTime, c.closeTime),
           amenities: c.specs ? c.specs.split(' · ') : [],
           x: pos.x,

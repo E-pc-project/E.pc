@@ -110,6 +110,14 @@ export function CommunityCenters({ onBook, onAddCenter }: CommunityCentersProps)
                       {c.name}
                     </h3>
                     <p className="text-xs text-muted-foreground truncate">{c.district || c.location}</p>
+                    {c.reviewCount > 0 ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <svg className="w-3 h-3" viewBox="0 0 12 12" fill="#f59e0b"><path d="M6 1l1.2 3.6H11L8 6.9l1.2 3.7L6 8.5 2.8 10.6 4 6.9 1 4.6h3.8z" /></svg>
+                        <span className="text-[11px] text-muted-foreground">{c.rating} ({c.reviewCount})</span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-bold mt-0.5 inline-block" style={{ color: c.color, letterSpacing: '0.06em' }}>✦ ШИНЭ ТӨВ</span>
+                    )}
                   </div>
                   <span
                     className="text-xs font-bold px-2 py-1 rounded shrink-0"

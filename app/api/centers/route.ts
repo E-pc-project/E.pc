@@ -57,6 +57,8 @@ export async function GET() {
       openTime: c.open_time,
       closeTime: c.close_time,
       photo: c.photo,
+      rating: Math.round((c.avg_rating || 0) * 10) / 10,
+      reviewCount: c.review_count || 0,
     }))
     return Response.json({ centers })
   } catch (err) {

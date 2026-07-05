@@ -35,6 +35,8 @@ export async function GET(req: Request) {
 
     const bookings = bookingRows.map((b) => ({
       id: b.id,
+      centerId: b.center_id,
+      roomId: b.room_id,
       centerName: b.center_name,
       roomName: b.room_name,
       date: b.date,
@@ -43,6 +45,9 @@ export async function GET(req: Request) {
       seats: b.seats,
       game: b.game,
       totalPrice: b.total_price,
+      status: b.status,
+      cancelledAt: b.cancelled_at,
+      refundAmount: b.refund_amount,
       createdAt: b.created_at,
     }))
 
