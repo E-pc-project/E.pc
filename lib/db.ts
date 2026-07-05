@@ -5,6 +5,7 @@ import 'server-only'
 import type { Client } from '@libsql/client'
 import fs from 'node:fs'
 import path from 'node:path'
+import { parseSeats, timeToHour } from './availability'
 
 export interface UserRow {
   id: number
@@ -16,6 +17,7 @@ export interface UserRow {
   reset_code: string | null
   reset_expires: string | null
   balance: number
+  phone: string | null
   created_at: string
 }
 
@@ -154,6 +156,7 @@ async function db(): Promise<Client> {
         'ALTER TABLE users ADD COLUMN reset_code TEXT',
         'ALTER TABLE users ADD COLUMN reset_expires TEXT',
         'ALTER TABLE users ADD COLUMN balance INTEGER NOT NULL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN phone TEXT',
       ]) {
         try {
           await client.execute(sql)
@@ -161,6 +164,22 @@ async function db(): Promise<Client> {
           /* column already exists */
         }
       }
+      // SQLite can't add a UNIQUE constraint via ALTER TABLE ADD COLUMN, so
+      // it's enforced with a separate index instead — NULLs (email/password
+      // accounts with no phone) don't count as duplicates under UNIQUE.
+      await client.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)',
+      )
+      // OTP codes for phone-number sign-in — one row per phone, overwritten
+      // on every new request so only the most recently sent code is valid.
+      // Not tied to a user row because the phone may not have an account yet
+      // (first-time sign-in creates one on successful verification).
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS phone_otps (
+          phone      TEXT PRIMARY KEY,
+          code       TEXT NOT NULL,
+          expires_at TEXT NOT NULL
+        )`)
       await client.execute(`
         CREATE TABLE IF NOT EXISTS centers (
           id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,6 +307,40 @@ async function db(): Promise<Client> {
           comment     TEXT NOT NULL DEFAULT '',
           created_at  TEXT NOT NULL
         )`)
+      // One row per (room, date, seat, hour) a confirmed booking occupies.
+      // The UNIQUE constraint is the actual double-booking guard — it's
+      // enforced by SQLite itself, so it holds even if two requests race
+      // each other (see insertBooking, which inserts these inside a write
+      // transaction and treats a constraint violation as a conflict).
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS booking_slots (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          booking_id INTEGER NOT NULL,
+          room_id    INTEGER NOT NULL,
+          date       TEXT NOT NULL,
+          seat_num   INTEGER NOT NULL,
+          hour       INTEGER NOT NULL,
+          UNIQUE(room_id, date, seat_num, hour)
+        )`)
+      // Backfill slots for bookings that predate this table. Uses INSERT OR
+      // IGNORE because pre-existing test data may already contain overlaps
+      // that were never guarded at the DB level — this only needs to seed
+      // the constraint going forward, not retroactively fix old rows.
+      const unslotted = await client.execute(`
+        SELECT b.* FROM bookings b
+        LEFT JOIN booking_slots s ON s.booking_id = b.id
+        WHERE s.id IS NULL AND b.status != 'cancelled'`)
+      for (const row of unslotted.rows as unknown as BookingRow[]) {
+        const startHour = timeToHour(row.time)
+        for (const seat of parseSeats(row.seats)) {
+          for (let h = startHour; h < startHour + row.duration; h++) {
+            await client.execute({
+              sql: 'INSERT OR IGNORE INTO booking_slots (booking_id, room_id, date, seat_num, hour) VALUES (?, ?, ?, ?, ?)',
+              args: [row.id, row.room_id, row.date, seat, h],
+            })
+          }
+        }
+      }
     })()
   }
   await g.__epcSchema
@@ -326,6 +379,65 @@ export async function createUser(input: {
     ],
   })
   return rs.rows[0] as unknown as UserRow
+}
+
+export async function getUserByPhone(phone: string): Promise<UserRow | undefined> {
+  const client = await db()
+  const rs = await client.execute({ sql: 'SELECT * FROM users WHERE phone = ?', args: [phone] })
+  return rs.rows[0] as unknown as UserRow | undefined
+}
+
+// Phone-first accounts have no real email — this app's whole data model
+// (bookings, reviews, notifications, wallet) is keyed on user_email, so a
+// synthetic one is created instead of threading a second identifier
+// through every table. passwordHash is a random, unusable hash (there's no
+// password login for phone accounts) computed by the caller.
+export async function createUserWithPhone(input: {
+  name: string
+  phone: string
+  passwordHash: string
+}): Promise<UserRow> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: `INSERT INTO users (name, email, password_hash, phone, created_at)
+          VALUES (?, ?, ?, ?, ?) RETURNING *`,
+    args: [
+      input.name,
+      `${input.phone}@phone.epc.local`,
+      input.passwordHash,
+      input.phone,
+      new Date().toISOString(),
+    ],
+  })
+  return rs.rows[0] as unknown as UserRow
+}
+
+// Upserts the active OTP for a phone number — only the most recently
+// requested code is valid, so a re-request invalidates any earlier one.
+export async function setPhoneOtp(phone: string, code: string, expiresISO: string): Promise<void> {
+  const client = await db()
+  await client.execute({
+    sql: `INSERT INTO phone_otps (phone, code, expires_at) VALUES (?, ?, ?)
+          ON CONFLICT(phone) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at`,
+    args: [phone, code, expiresISO],
+  })
+}
+
+export async function getPhoneOtp(
+  phone: string,
+): Promise<{ code: string; expires_at: string } | undefined> {
+  const client = await db()
+  const rs = await client.execute({
+    sql: 'SELECT code, expires_at FROM phone_otps WHERE phone = ?',
+    args: [phone],
+  })
+  return rs.rows[0] as unknown as { code: string; expires_at: string } | undefined
+}
+
+// Deletes the OTP after a successful verify so the code can't be replayed.
+export async function clearPhoneOtp(phone: string): Promise<void> {
+  const client = await db()
+  await client.execute({ sql: 'DELETE FROM phone_otps WHERE phone = ?', args: [phone] })
 }
 
 // Store a password-reset code + expiry on the user.
@@ -643,6 +755,11 @@ export async function insertReview(input: {
 
 /* ---------------------------- Bookings --------------------------- */
 
+// Inserts the booking and its per-seat-per-hour slots inside a single write
+// transaction. The slot inserts are the real conflict guard: they hit the
+// UNIQUE(room_id, date, seat_num, hour) constraint on booking_slots, which
+// SQLite enforces even if two requests race each other — the app-level
+// pre-check in the API route can still be beaten by a race, this can't.
 export async function insertBooking(input: {
   userEmail: string
   centerId: string
@@ -655,28 +772,53 @@ export async function insertBooking(input: {
   seats: string
   game: string
   totalPrice: number
-}): Promise<BookingRow> {
+}): Promise<{ ok: true; booking: BookingRow } | { ok: false }> {
   const client = await db()
-  const rs = await client.execute({
-    sql: `INSERT INTO bookings
-            (user_email, center_id, center_name, room_id, room_name, date, time, duration, seats, game, total_price, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-    args: [
-      input.userEmail.toLowerCase(),
-      input.centerId,
-      input.centerName,
-      input.roomId,
-      input.roomName,
-      input.date,
-      input.time,
-      input.duration,
-      input.seats,
-      input.game,
-      input.totalPrice,
-      new Date().toISOString(),
-    ],
-  })
-  return rs.rows[0] as unknown as BookingRow
+  const tx = await client.transaction('write')
+  try {
+    const rs = await tx.execute({
+      sql: `INSERT INTO bookings
+              (user_email, center_id, center_name, room_id, room_name, date, time, duration, seats, game, total_price, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      args: [
+        input.userEmail.toLowerCase(),
+        input.centerId,
+        input.centerName,
+        input.roomId,
+        input.roomName,
+        input.date,
+        input.time,
+        input.duration,
+        input.seats,
+        input.game,
+        input.totalPrice,
+        new Date().toISOString(),
+      ],
+    })
+    const booking = rs.rows[0] as unknown as BookingRow
+
+    const startHour = timeToHour(input.time)
+    for (const seat of parseSeats(input.seats)) {
+      for (let h = startHour; h < startHour + input.duration; h++) {
+        await tx.execute({
+          sql: 'INSERT INTO booking_slots (booking_id, room_id, date, seat_num, hour) VALUES (?, ?, ?, ?, ?)',
+          args: [booking.id, input.roomId, input.date, seat, h],
+        })
+      }
+    }
+
+    await tx.commit()
+    return { ok: true, booking }
+  } catch {
+    try {
+      await tx.rollback()
+    } catch {
+      /* transaction already aborted by the failed statement */
+    }
+    return { ok: false }
+  } finally {
+    tx.close()
+  }
 }
 
 export async function listBookingsByUser(email: string): Promise<BookingRow[]> {
@@ -704,6 +846,12 @@ export async function cancelBooking(id: number, refundAmount: number): Promise<b
           WHERE id = ? AND status != 'cancelled'`,
     args: [new Date().toISOString(), refundAmount, id],
   })
+  if (rs.rowsAffected > 0) {
+    // Free the seat/hour slots this booking held, otherwise the UNIQUE
+    // constraint on booking_slots would keep blocking anyone else from
+    // booking them even though the booking is now cancelled.
+    await client.execute({ sql: 'DELETE FROM booking_slots WHERE booking_id = ?', args: [id] })
+  }
   return rs.rowsAffected > 0
 }
 
@@ -722,6 +870,24 @@ export async function listBookingsByCenterAndDate(
     args: [centerId, date],
   })
   return rs.rows as unknown as BookingRow[]
+}
+
+// Grouped-by-room availability shape shared by the plain GET endpoint and
+// the SSE stream endpoint (app/api/bookings/route.ts and
+// app/api/bookings/stream/route.ts) — one query covers every room card the
+// booking modal shows.
+export async function getCenterAvailability(
+  centerId: string,
+  date: string,
+): Promise<Record<string, { time: string; duration: number; seats: string }[]>> {
+  const rows = await listBookingsByCenterAndDate(centerId, date)
+  const byRoom: Record<string, { time: string; duration: number; seats: string }[]> = {}
+  for (const r of rows) {
+    const key = String(r.room_id)
+    if (!byRoom[key]) byRoom[key] = []
+    byRoom[key].push({ time: r.time, duration: r.duration, seats: r.seats })
+  }
+  return byRoom
 }
 
 // Scoped to a single room — used for the server-side seat-conflict check

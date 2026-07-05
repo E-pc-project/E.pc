@@ -3,13 +3,15 @@
 import { useState } from 'react'
 import { useAuth } from './auth-context'
 
-type Mode = 'login' | 'register' | 'forgot' | 'reset'
+type Mode = 'login' | 'register' | 'forgot' | 'reset' | 'phone-request' | 'phone-verify'
+type Method = 'email' | 'phone'
 
 const inputCls =
   'bg-input border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-foreground focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-colors'
 
 export function AuthModal() {
-  const { login, register } = useAuth()
+  const { login, register, requestOtp, verifyOtp } = useAuth()
+  const [method, setMethod] = useState<Method>('email')
   const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -17,6 +19,8 @@ export function AuthModal() {
   const [adminCode, setAdminCode] = useState('')
   const [code, setCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [phone, setPhone] = useState('')
+  const [otpExists, setOtpExists] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
@@ -25,6 +29,14 @@ export function AuthModal() {
     setMode(m)
     setError('')
     setInfo('')
+  }
+
+  function switchMethod(m: Method) {
+    setMethod(m)
+    setMode(m === 'email' ? 'login' : 'phone-request')
+    setError('')
+    setInfo('')
+    setCode('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -70,6 +82,19 @@ export function AuthModal() {
           setMode('login')
           setInfo('Нууц үг амжилттай солигдлоо. Одоо нэвтэрнэ үү.')
         }
+      } else if (mode === 'phone-request') {
+        const r = await requestOtp(phone)
+        if (!r.ok) setError(r.error || 'Алдаа гарлаа.')
+        else {
+          setOtpExists(Boolean(r.exists))
+          setMode('phone-verify')
+          setInfo(
+            `Демо горим: бодит SMS илгээгээгүй тул баталгаажуулах код доор шууд харагдаж байна — ${r.demoCode}`,
+          )
+        }
+      } else if (mode === 'phone-verify') {
+        const r = await verifyOtp(phone, code, otpExists ? undefined : name)
+        if (!r.ok) setError(r.error || 'Алдаа гарлаа.')
       }
     } finally {
       setLoading(false)
@@ -77,6 +102,7 @@ export function AuthModal() {
   }
 
   const isAuthTabs = mode === 'login' || mode === 'register'
+  const isPhoneFlow = mode === 'phone-request' || mode === 'phone-verify'
 
   const submitLabel = loading
     ? 'Уншиж байна...'
@@ -86,7 +112,11 @@ export function AuthModal() {
         ? 'БҮРТГҮҮЛЭХ'
         : mode === 'forgot'
           ? 'КОД ИЛГЭЭХ'
-          : 'НУУЦ ҮГ СОЛИХ'
+          : mode === 'reset'
+            ? 'НУУЦ ҮГ СОЛИХ'
+            : mode === 'phone-request'
+              ? 'КОД АВАХ'
+              : 'БАТАЛГААЖУУЛАХ'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95">
@@ -111,7 +141,36 @@ export function AuthModal() {
         </div>
 
         <div className="glass-card rounded-xl p-8 relative cyber-corner">
-          {isAuthTabs ? (
+          {(isAuthTabs || isPhoneFlow) && (
+            <div className="flex mb-4 bg-muted rounded-lg p-1">
+              {(['email', 'phone'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => switchMethod(m)}
+                  className={`flex-1 py-2 rounded-md text-xs font-semibold uppercase tracking-widest transition-all duration-200 ${
+                    method === m ? 'bg-neon-magenta text-background font-bold' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {m === 'email' ? 'И-мэйл' : 'Утас'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isPhoneFlow ? (
+            <div className="mb-6">
+              <h2 className="text-lg font-black neon-text-cyan" style={{ fontFamily: 'var(--font-heading)' }}>
+                УТАСНЫ ДУГААРААР
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                {mode === 'phone-request'
+                  ? 'Утасны дугаараа оруулбал 6 оронтой баталгаажуулах код илгээнэ.'
+                  : otpExists
+                    ? 'Ирсэн кодоо оруулж нэвтэрнэ үү.'
+                    : 'Шинэ хэрэглэгч байна — нэрээ болон ирсэн кодоо оруулна уу.'}
+              </p>
+            </div>
+          ) : isAuthTabs ? (
             <div className="flex mb-6 bg-muted rounded-lg p-1">
               {(['login', 'register'] as const).map((m) => (
                 <button
@@ -145,7 +204,7 @@ export function AuthModal() {
               </Field>
             )}
 
-            {mode !== 'reset' ? (
+            {!isPhoneFlow && (mode !== 'reset' ? (
               <Field label="И-мэйл">
                 <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="example@email.com" className={inputCls} />
               </Field>
@@ -153,12 +212,51 @@ export function AuthModal() {
               <Field label="И-мэйл">
                 <input type="email" value={email} readOnly className={`${inputCls} opacity-70`} />
               </Field>
-            )}
+            ))}
 
             {(mode === 'login' || mode === 'register') && (
               <Field label="Нууц үг">
                 <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={inputCls} />
               </Field>
+            )}
+
+            {mode === 'phone-request' && (
+              <Field label="Утасны дугаар">
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
+                  placeholder="99112233"
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Field>
+            )}
+
+            {mode === 'phone-verify' && (
+              <>
+                <Field label="Утасны дугаар">
+                  <input type="tel" value={phone} readOnly className={`${inputCls} opacity-70`} />
+                </Field>
+                {!otpExists && (
+                  <Field label="Нэр">
+                    <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Таны нэр" className={inputCls} />
+                  </Field>
+                )}
+                <Field label="6 оронтой код">
+                  <input
+                    type="text"
+                    required
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className={`${inputCls} tracking-[0.5em] text-center text-lg font-bold`}
+                  />
+                </Field>
+              </>
             )}
 
             {mode === 'reset' && (
@@ -233,6 +331,14 @@ export function AuthModal() {
                 {mode === 'login' ? 'Бүртгүүлэх' : 'Нэвтрэх'}
               </button>
             </p>
+          ) : isPhoneFlow ? (
+            mode === 'phone-verify' && (
+              <p className="text-center text-xs text-muted-foreground mt-3">
+                <button onClick={() => switchMode('phone-request')} className="text-neon-cyan underline underline-offset-2">
+                  ← Дугаараа солих
+                </button>
+              </p>
+            )
           ) : (
             <p className="text-center text-xs text-muted-foreground mt-4">
               {mode === 'reset' && (

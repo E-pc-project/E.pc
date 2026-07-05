@@ -3,12 +3,12 @@ import {
   cancelBooking,
   deductUserBalance,
   getBookingById,
+  getCenterAvailability,
   getCenterById,
   getUserBalance,
   getUserByEmail,
   insertBooking,
   insertNotification,
-  listBookingsByCenterAndDate,
   listBookingsByRoomAndDate,
 } from '@/lib/db'
 import { computeOccupiedSeats } from '@/lib/availability'
@@ -34,13 +34,7 @@ export async function GET(req: Request) {
     if (!centerId || !date) {
       return Response.json({ byRoom: {} })
     }
-    const rows = await listBookingsByCenterAndDate(centerId, date)
-    const byRoom: Record<string, { time: string; duration: number; seats: string }[]> = {}
-    for (const r of rows) {
-      const key = String(r.room_id)
-      if (!byRoom[key]) byRoom[key] = []
-      byRoom[key].push({ time: r.time, duration: r.duration, seats: r.seats })
-    }
+    const byRoom = await getCenterAvailability(centerId, date)
     return Response.json({ byRoom })
   } catch (err) {
     console.error('[bookings GET]', err)
@@ -99,7 +93,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const booking = await insertBooking({
+    const result = await insertBooking({
       userEmail: b.userEmail,
       centerId,
       centerName: b.centerName,
@@ -112,6 +106,21 @@ export async function POST(req: Request) {
       game: b.game ?? '',
       totalPrice,
     })
+
+    if (!result.ok) {
+      // The check above is best-effort and can be beaten by a concurrent
+      // request — insertBooking's UNIQUE constraint is the real guard, and
+      // it just lost. Refund the wallet charge already taken above.
+      if (totalPrice > 0) await addUserBalance(b.userEmail, totalPrice)
+      return Response.json(
+        {
+          error: 'Сонгосон PC-нүүдийн зарим нь энэ хугацаанд аль хэдийн захиалагдсан байна.',
+          conflict: true,
+        },
+        { status: 409 },
+      )
+    }
+    const booking = result.booking
 
     // Notify the center's admin. Never fail the booking if this breaks.
     try {
